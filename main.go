@@ -20,50 +20,67 @@ import (
 	"github.com/docker/docker/client"
 )
 
+type Config struct {
+	cli               *client.Client
+	ctx               context.Context
+	imageName         string
+	githubAccessToken string
+	ownerName         string
+	repoName          string
+	limit             int
+}
+
 func main() {
-	sock := os.Getenv("DOCKER_SOCK")
-	if sock == "" {
-		log.Println("DOCKER_SOCK is not registered")
+	githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
+	ownerName := os.Getenv("GITHUB_REPOSITORY_OWNER")
+	repoName := os.Getenv("GITHUB_REPOSITORY_NAME")
+	if githubAccessToken == "" {
+		log.Println("GITHUB_ACCESS_TOKEN is not registered")
 		return
 	}
-	cli, err := client.NewClientWithOpts(client.WithHost(sock), client.WithAPIVersionNegotiation())
+	if ownerName == "" {
+		log.Println("GITHUB_REPOSITORY_OWNER is not registered")
+		return
+	}
+	if repoName == "" {
+		log.Println("GITHUB_REPOSITORY_NAME is not registered")
+		return
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Println("Error creating Docker client: ", err)
 	}
 
-	imageName := "local-runner:latest"
-
-	ctx := context.Background()
-
-	list, e := cli.ImageList(ctx, image.ListOptions{})
-	if e != nil {
-		log.Println(e)
+	config := Config{
+		cli:               cli,
+		ctx:               context.Background(),
+		imageName:         "local-runner:latest",
+		githubAccessToken: githubAccessToken,
+		ownerName:         ownerName,
+		repoName:          repoName,
+		limit:             2,
 	}
 
-	var build bool = true
-	for _, v := range list {
-		tags := v.RepoTags
-		for _, t := range tags {
-			if t == imageName {
-				build = false
-			}
-		}
+	build, e := config.haveToBuild()
+	if e != nil {
+		log.Println("Can not find image: ", err)
+		return
 	}
 
 	if build {
-		er := buildRunnerImage(imageName, ctx, cli)
+		er := config.buildRunnerImage()
 		if er != nil {
 			log.Println("Can not build: ", er)
 			return
 		}
 	}
-	ee := handleContainer(cli, ctx, imageName)
+	ee := config.handleContainer()
 	if ee != nil {
 		log.Println(ee)
 		return
 	}
 
-	eventsChan, errorsChan := cli.Events(ctx, events.ListOptions{})
+	eventsChan, errorsChan := cli.Events(config.ctx, events.ListOptions{})
 
 	// イベントストリームの監視
 	for {
@@ -71,7 +88,7 @@ func main() {
 		case event := <-eventsChan:
 			if event.Type == events.ContainerEventType && event.Action == "die" {
 				log.Println("Container", event.Actor.ID, " has exited", event.Actor.Attributes)
-				ee := handleContainer(cli, ctx, imageName)
+				ee := config.handleContainer()
 				if ee != nil {
 					log.Println(ee)
 					return
@@ -84,36 +101,20 @@ func main() {
 }
 
 // コンテナ終了時のコールバック処理
-func handleContainer(cli *client.Client, ctx context.Context, imageName string) *error {
+func (config Config) handleContainer() *error {
 	// 必要な処理をここに実装
-	limit := 2
-	containers, _ := cli.ContainerList(ctx, container.ListOptions{})
+	containers, _ := config.cli.ContainerList(config.ctx, container.ListOptions{})
 	var count = 0
 	for _, v := range containers {
-		if v.Image == imageName {
+		if v.Image == config.imageName {
 			count++
 		}
 	}
-	if limit > count {
-		githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
-		ownerName := os.Getenv("GITHUB_REPOSITORY_OWNER")
-		repoName := os.Getenv("GITHUB_REPOSITORY_NAME")
-		if githubAccessToken == "" {
-			e := fmt.Errorf("GITHUB_ACCESS_TOKEN is not registered")
-			return &e
-		}
-		if ownerName == "" {
-			e := fmt.Errorf("GITHUB_REPOSITORY_OWNER is not registered")
-			return &e
-		}
-		if repoName == "" {
-			e := fmt.Errorf("GITHUB_REPOSITORY_NAME is not registered")
-			return &e
-		}
+	if config.limit > count {
 		// コンテナの設定
 		containerConfig := &container.Config{
-			Image: imageName,
-			Env:   []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + githubAccessToken, "GITHUB_REPOSITORY_OWNER=" + ownerName, "GITHUB_REPOSITORY_NAME=" + repoName, "RUNNER_ALLOW_RUNASROOT=abc"},
+			Image: config.imageName,
+			Env:   []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.githubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.ownerName, "GITHUB_REPOSITORY_NAME=" + config.repoName},
 		}
 
 		// ホスト設定（自動削除など）
@@ -121,46 +122,44 @@ func handleContainer(cli *client.Client, ctx context.Context, imageName string) 
 			AutoRemove: true, // コンテナ終了後に自動で削除
 		}
 
-		j := limit - count
+		j := config.limit - count
 		for i := 0; i < j; i++ {
-			go func() {
-				seed := time.Now().UnixNano()
-				rand.New(rand.NewSource(seed))
-				val := rand.Intn(100000)
+			seed := time.Now().UnixNano()
+			rand.New(rand.NewSource(seed))
+			val := rand.Intn(100000)
 
-				// コンテナの作成
-				resp, err := cli.ContainerCreate(
-					ctx,
-					containerConfig,
-					hostConfig,
-					nil,
-					nil,
-					"local-runner-"+strconv.Itoa(val),
-				)
+			// コンテナの作成
+			resp, err := config.cli.ContainerCreate(
+				config.ctx,
+				containerConfig,
+				hostConfig,
+				nil,
+				nil,
+				"local-runner-"+strconv.Itoa(val),
+			)
 
-				if err != nil {
-					log.Println("Error creating container: ", err)
-					return
-				}
+			if err != nil {
+				log.Println("Error creating container: ", err)
+				continue
+			}
 
-				// コンテナのIDを表示
-				log.Println("Container created with ID: ", resp.ID)
+			// コンテナのIDを表示
+			log.Println("Container created with ID: ", resp.ID)
 
-				// コンテナを起動
-				if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-					log.Println("Error starting container: ", err)
-					return
-				}
-			}()
+			// コンテナを起動
+			if err := config.cli.ContainerStart(config.ctx, resp.ID, container.StartOptions{}); err != nil {
+				log.Println("Error starting container: ", err)
+				continue
+			}
 		}
 	}
 	return nil
 }
 
-func buildRunnerImage(imageName string, ctx context.Context, cli *client.Client) error {
+func (config Config) buildRunnerImage() error {
 	// イメージビルドオプションの設定
 	options := types.ImageBuildOptions{
-		Tags:       []string{imageName},
+		Tags:       []string{config.imageName},
 		Dockerfile: "Dockerfile",
 		Remove:     true,
 	}
@@ -171,7 +170,7 @@ func buildRunnerImage(imageName string, ctx context.Context, cli *client.Client)
 		return err
 	}
 
-	res, er := cli.ImageBuild(ctx, buildContext, options)
+	res, er := config.cli.ImageBuild(config.ctx, buildContext, options)
 	if er != nil {
 		log.Println(er)
 		return er
@@ -236,4 +235,20 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 
 	// tarアーカイブをio.Readerとして返す
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
+}
+
+func (config Config) haveToBuild() (bool, error) {
+	list, e := config.cli.ImageList(config.ctx, image.ListOptions{})
+	if e != nil {
+		log.Println(e)
+		return true, fmt.Errorf("does not find %s can not get image list", config.imageName)
+	}
+	for _, v := range list {
+		for _, t := range v.RepoTags {
+			if t == config.imageName {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
 }
