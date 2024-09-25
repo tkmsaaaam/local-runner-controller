@@ -34,6 +34,7 @@ func main() {
 	githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
 	ownerName := os.Getenv("GITHUB_REPOSITORY_OWNER")
 	repoName := os.Getenv("GITHUB_REPOSITORY_NAME")
+	runnerLimit := os.Getenv("RUNNER_LIMIT")
 	if githubAccessToken == "" {
 		log.Println("GITHUB_ACCESS_TOKEN is not registered")
 		return
@@ -51,6 +52,12 @@ func main() {
 		log.Println("Error creating Docker client: ", err)
 	}
 
+	var limit int
+	limit, err = strconv.Atoi(runnerLimit)
+	if err != nil {
+		limit = 2
+	}
+
 	config := Config{
 		cli:               cli,
 		ctx:               context.Background(),
@@ -58,7 +65,7 @@ func main() {
 		githubAccessToken: githubAccessToken,
 		ownerName:         ownerName,
 		repoName:          repoName,
-		limit:             2,
+		limit:             limit,
 	}
 
 	build, e := config.haveToBuild()
