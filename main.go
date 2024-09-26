@@ -9,8 +9,10 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -87,6 +89,19 @@ func main() {
 		return
 	}
 
+	// プログラム終了を制御するチャンネル
+	done := make(chan bool)
+
+	// シグナルをキャッチするチャンネルを作成
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 別のゴルーチンでシグナルを監視
+	go func() {
+		<-sigChan    // シグナルが来るまで待機
+		done <- true // シグナルを受け取ったらdoneチャンネルに通知
+	}()
+
 	eventsChan, errorsChan := cli.Events(config.ctx, events.ListOptions{})
 
 	// イベントストリームの監視
@@ -103,6 +118,26 @@ func main() {
 			}
 		case err := <-errorsChan:
 			log.Println("Error while listening to Docker events: ", err)
+		case <-done:
+			containers, _ := config.cli.ContainerList(config.ctx, container.ListOptions{})
+			for _, v := range containers {
+				if v.Image == config.imageName {
+					res, err := config.cli.ContainerExecCreate(config.ctx, v.ID, container.ExecOptions{
+						Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
+					})
+					if err != nil {
+						log.Println("Can not delete container ", err)
+						continue
+					}
+					_, err = cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
+					if err != nil {
+						log.Println("Can not delete container ", err)
+						continue
+					}
+					log.Println("Delete container id: ", v.ID)
+				}
+			}
+			return
 		}
 	}
 }

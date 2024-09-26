@@ -18,6 +18,8 @@ RUN mkdir actions-runner && cd actions-runner && \
 
 COPY ./start.sh /actions-runner/start.sh
 RUN chmod +x /actions-runner/start.sh
+COPY ./stop.sh /actions-runner/stop.sh
+RUN chmod +x /actions-runner/stop.sh
 WORKDIR /actions-runner
 
 CMD ["/bin/bash", "-c", "/actions-runner/start.sh"]
