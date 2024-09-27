@@ -123,7 +123,7 @@ func main() {
 			for _, v := range containers {
 				if v.Image == config.imageName {
 					res, err := config.cli.ContainerExecCreate(config.ctx, v.ID, container.ExecOptions{
-						Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
+						Cmd: []string{"/bin/bash", "-c", "export GITHUB_ACCESS_TOKEN=" + config.githubAccessToken + " && /actions-runner/stop.sh"},
 					})
 					if err != nil {
 						log.Println("Can not delete container ", err)
