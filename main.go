@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/jferrl/go-githubauth"
 )
 
 type Config struct {
@@ -33,12 +34,12 @@ type Config struct {
 }
 
 func main() {
-	githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
+	githubAccessToken, err := getGitHubToken()
 	ownerName := os.Getenv("GITHUB_REPOSITORY_OWNER")
 	repoName := os.Getenv("GITHUB_REPOSITORY_NAME")
 	runnerLimit := os.Getenv("RUNNER_LIMIT")
-	if githubAccessToken == "" {
-		log.Println("GITHUB_ACCESS_TOKEN is not registered")
+	if err != nil {
+		log.Println(err)
 		return
 	}
 	if ownerName == "" {
@@ -140,6 +141,40 @@ func main() {
 			return
 		}
 	}
+}
+
+func getGitHubToken() (string, error) {
+	githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
+	if githubAccessToken != "" {
+		return githubAccessToken, nil
+	}
+	keyPath := os.Getenv("KEY_PATH")
+	appId, err := strconv.Atoi(os.Getenv("GITHUB_APP_ID"))
+	if err != nil {
+		return "", fmt.Errorf("GITHUB_APP_ID is invalid %s", err)
+	}
+	installationId, err := strconv.Atoi(os.Getenv("GITHUB_APP_INSTALL_ID"))
+	if err != nil {
+		return "", fmt.Errorf("GITHUB_APP_INSTALL_ID is invalid %s", err)
+	}
+
+	if keyPath != "" && appId != 0 && installationId != 0 {
+		key, err := os.ReadFile(keyPath)
+		if err != nil {
+			return "", fmt.Errorf("Can not get app private key %s", err)
+		}
+		appTokenSource, err := githubauth.NewApplicationTokenSource(int64(appId), key)
+		if err != nil {
+			return "", fmt.Errorf("Can not get access_token %s", err)
+		}
+		installationTokenSource := githubauth.NewInstallationTokenSource(int64(installationId), appTokenSource)
+		token, err := installationTokenSource.Token()
+		if err != nil {
+			return "", fmt.Errorf("Can not get token %s", err)
+		}
+		return token.AccessToken, nil
+	}
+	return "", fmt.Errorf("Can not get token")
 }
 
 // コンテナ終了時のコールバック処理
