@@ -1,7 +1,7 @@
 # local-runner-controller
 
 Local Runner Controller is an application that builds images, executes containers, and registers runners to GitHub in order to run GitHub Actions runners on local machines.
-CI/CD can be executed on a local machine without consuming cloud computing resources. A GitHub Actions job is executed as a single container, and when the job finishes, the container is deleted and a new container is launched.
+CI/CD can be executed on a local machine without consuming cloud computing resources (e.g. [AWS](https://aws.amazon.com)). A GitHub Actions job is executed as a single container, and when the job finishes, the container is deleted and a new container is launched.
 CI/CD execution based on user actions such as [push](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#push) and [pull_request_target](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request_target) can be executed using local machine resources. On the other hand, it is not recommended to use it for jobs that are not based on user operations (more precisely, the user's PC or laptop may be shut down when cron is started), such as cron executions.
 like: [ARC](https://github.com/actions/actions-runner-controller)
 
