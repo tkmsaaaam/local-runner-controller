@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -23,59 +24,49 @@ import (
 	"github.com/jferrl/go-githubauth"
 )
 
+type GitHubAuth struct {
+	IsApp       bool   `json:"is_app"`
+	AccessToken string `json:"access_token"`
+	App         struct {
+		Id             int64  `json:"id"`
+		InstallationId int64  `json:"installation_id"`
+		KeyPath        string `json:"key_path"`
+	}
+}
+
+type Repository struct {
+	Owner string `json:"owner"`
+	Name  string `json:"name"`
+}
+
+type Env struct {
+	Github struct {
+		Repository Repository `json:"repository"`
+		Auth       GitHubAuth `json:"auth"`
+	} `json:"github"`
+	RunnerLimit int `json:"runner_limit"`
+}
+
 type Config struct {
-	cli               *client.Client
-	ctx               context.Context
-	imageName         string
-	githubAccessToken string
-	tokenExpire       *time.Time
-	ownerName         string
-	repoName          string
-	limit             int
+	Cli               *client.Client
+	Ctx               context.Context
+	ImageName         string
+	GithubAuth        GitHubAuth
+	GithubAccessToken string
+	TokenExpire       *time.Time
+	Repository        *Repository
+	Limit             int
 }
 
 func main() {
-	githubAccessToken, expire, err := getGitHubToken()
-	ownerName := os.Getenv("GITHUB_REPOSITORY_OWNER")
-	repoName := os.Getenv("GITHUB_REPOSITORY_NAME")
-	runnerLimit := os.Getenv("RUNNER_LIMIT")
+	config, err := makeConfig()
 	if err != nil {
-		log.Println(err)
+		log.Println("Invalid enviroment variables: ", err)
 		return
 	}
-	if ownerName == "" {
-		log.Println("GITHUB_REPOSITORY_OWNER is not registered")
-		return
-	}
-	if repoName == "" {
-		log.Println("GITHUB_REPOSITORY_NAME is not registered")
-		return
-	}
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Println("Error creating Docker client: ", err)
-	}
-
-	var limit int
-	limit, err = strconv.Atoi(runnerLimit)
-	if err != nil {
-		limit = 2
-	}
-
-	config := &Config{
-		cli:               cli,
-		ctx:               context.Background(),
-		imageName:         "local-runner:latest",
-		githubAccessToken: githubAccessToken,
-		tokenExpire:       expire,
-		ownerName:         ownerName,
-		repoName:          repoName,
-		limit:             limit,
-	}
-
 	build, e := config.haveToBuild()
 	if e != nil {
-		log.Println("Can not find image: ", err)
+		log.Println("Can not find image: ", e)
 		return
 	}
 
@@ -105,7 +96,7 @@ func main() {
 		done <- true // シグナルを受け取ったらdoneチャンネルに通知
 	}()
 
-	eventsChan, errorsChan := cli.Events(config.ctx, events.ListOptions{})
+	eventsChan, errorsChan := config.Cli.Events(config.Ctx, events.ListOptions{})
 
 	// イベントストリームの監視
 	for {
@@ -123,17 +114,17 @@ func main() {
 			log.Println("Error while listening to Docker events: ", err)
 		case <-done:
 			config.refreshToken()
-			containers, _ := config.cli.ContainerList(config.ctx, container.ListOptions{})
+			containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 			for _, v := range containers {
-				if v.Image == config.imageName {
-					res, err := config.cli.ContainerExecCreate(config.ctx, v.ID, container.ExecOptions{
-						Cmd: []string{"/bin/bash", "-c", "export GITHUB_ACCESS_TOKEN=" + config.githubAccessToken + " && /actions-runner/stop.sh"},
+				if v.Image == config.ImageName {
+					res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
+						Cmd: []string{"/bin/bash", "-c", "export GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken + " && /actions-runner/stop.sh"},
 					})
 					if err != nil {
 						log.Println("Can not delete container ", err)
 						continue
 					}
-					_, err = cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
+					_, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
 					if err != nil {
 						log.Println("Can not delete container ", err)
 						continue
@@ -146,56 +137,107 @@ func main() {
 	}
 }
 
-func getGitHubToken() (string, *time.Time, error) {
-	githubAccessToken := os.Getenv("GITHUB_ACCESS_TOKEN")
-	if githubAccessToken != "" {
-		return githubAccessToken, nil, nil
-	}
-	keyPath := os.Getenv("KEY_PATH")
-	appId, err := strconv.Atoi(os.Getenv("GITHUB_APP_ID"))
+func makeConfig() (*Config, error) {
+	bytes, err := os.ReadFile("config.json")
 	if err != nil {
-		return "", nil, fmt.Errorf("GITHUB_APP_ID is invalid %s", err)
+		return nil, fmt.Errorf("Config file (config.json) is not present.")
 	}
-	installationId, err := strconv.Atoi(os.Getenv("GITHUB_APP_INSTALL_ID"))
+	var env Env
+	err = json.Unmarshal(bytes, &env)
 	if err != nil {
-		return "", nil, fmt.Errorf("GITHUB_APP_INSTALL_ID is invalid %s", err)
+		return nil, fmt.Errorf("Config file (config.json) is not invalid.")
+	}
+	if env.Github.Repository.Name == "" {
+		return nil, fmt.Errorf("github.repository.name is not registered in config.json")
+	}
+	if env.Github.Repository.Owner == "" {
+		return nil, fmt.Errorf("github.repository.owner is not registered in config.json")
 	}
 
-	if keyPath != "" && appId != 0 && installationId != 0 {
-		key, err := os.ReadFile(keyPath)
-		if err != nil {
-			return "", nil, fmt.Errorf("Can not get app private key %s", err)
+	var token string
+	var expiresAt *time.Time
+	if !env.Github.Auth.IsApp {
+		if env.Github.Auth.AccessToken == "" {
+			return nil, fmt.Errorf("github.auth.access_token is not registered in config.json")
 		}
-		appTokenSource, err := githubauth.NewApplicationTokenSource(int64(appId), key)
-		if err != nil {
-			return "", nil, fmt.Errorf("Can not get access_token %s", err)
+		token = env.Github.Auth.AccessToken
+		expiresAt = nil
+	} else {
+		if env.Github.Auth.App.KeyPath == "" {
+			return nil, fmt.Errorf("github.auth.app.key_path is not registered in config.json")
 		}
-		installationTokenSource := githubauth.NewInstallationTokenSource(int64(installationId), appTokenSource)
-		token, err := installationTokenSource.Token()
-		if err != nil {
-			return "", nil, fmt.Errorf("Can not get token %s", err)
+		if env.Github.Auth.App.Id == 0 {
+			return nil, fmt.Errorf("github.auth.app.id is not registered in config.json")
 		}
-		return token.AccessToken, &token.Expiry, nil
+		if env.Github.Auth.App.InstallationId == 0 {
+			return nil, fmt.Errorf("github.auth.app.installation_id is not registered in config.json")
+		}
+		token, expiresAt, err = env.Github.Auth.getGitHubToken()
+		if err != nil {
+			return nil, fmt.Errorf("Can not get GitHub Token %s", err)
+		}
 	}
-	return "", nil, fmt.Errorf("Can not get token")
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, fmt.Errorf("Error creating Docker client: %s", err)
+	}
+
+	var limit = env.RunnerLimit
+	if limit == 0 {
+		limit = 2
+	}
+
+	config := &Config{
+		Cli:               cli,
+		Ctx:               context.Background(),
+		ImageName:         "local-runner:latest",
+		GithubAccessToken: token,
+		TokenExpire:       expiresAt,
+		Repository:        &env.Github.Repository,
+		Limit:             limit,
+	}
+
+	return config, nil
+}
+
+func (auth *GitHubAuth) getGitHubToken() (string, *time.Time, error) {
+	if !auth.IsApp {
+		return auth.AccessToken, nil, nil
+	}
+
+	key, err := os.ReadFile(auth.App.KeyPath)
+	if err != nil {
+		return "", nil, fmt.Errorf("Can not get app private key %s", err)
+	}
+	appTokenSource, err := githubauth.NewApplicationTokenSource(auth.App.Id, key)
+	if err != nil {
+		return "", nil, fmt.Errorf("Can not get access_token %s", err)
+	}
+	installationTokenSource := githubauth.NewInstallationTokenSource(auth.App.InstallationId, appTokenSource)
+	token, err := installationTokenSource.Token()
+	if err != nil {
+		return "", nil, fmt.Errorf("Can not get token %s", err)
+	}
+	return token.AccessToken, &token.Expiry, nil
 }
 
 // コンテナ終了時のコールバック処理
 func (config *Config) handleContainer() *error {
 	// 必要な処理をここに実装
-	containers, _ := config.cli.ContainerList(config.ctx, container.ListOptions{})
+	containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 	var count = 0
 	for _, v := range containers {
-		if v.Image == config.imageName {
+		if v.Image == config.ImageName {
 			count++
 		}
 	}
-	if config.limit > count {
+	if config.Limit > count {
 		// コンテナの設定
 		config.refreshToken()
 		containerConfig := &container.Config{
-			Image: config.imageName,
-			Env:   []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.githubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.ownerName, "GITHUB_REPOSITORY_NAME=" + config.repoName},
+			Image: config.ImageName,
+			Env:   []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name},
 		}
 
 		// ホスト設定（自動削除など）
@@ -203,15 +245,15 @@ func (config *Config) handleContainer() *error {
 			AutoRemove: true, // コンテナ終了後に自動で削除
 		}
 
-		j := config.limit - count
+		j := config.Limit - count
 		for i := 0; i < j; i++ {
 			seed := time.Now().UnixNano()
 			rand.New(rand.NewSource(seed))
 			val := rand.Intn(100000)
 
 			// コンテナの作成
-			resp, err := config.cli.ContainerCreate(
-				config.ctx,
+			resp, err := config.Cli.ContainerCreate(
+				config.Ctx,
 				containerConfig,
 				hostConfig,
 				nil,
@@ -228,7 +270,7 @@ func (config *Config) handleContainer() *error {
 			log.Println("Container created with ID: ", resp.ID)
 
 			// コンテナを起動
-			if err := config.cli.ContainerStart(config.ctx, resp.ID, container.StartOptions{}); err != nil {
+			if err := config.Cli.ContainerStart(config.Ctx, resp.ID, container.StartOptions{}); err != nil {
 				log.Println("Error starting container: ", err)
 				continue
 			}
@@ -240,7 +282,7 @@ func (config *Config) handleContainer() *error {
 func (config *Config) buildRunnerImage() error {
 	// イメージビルドオプションの設定
 	options := types.ImageBuildOptions{
-		Tags:       []string{config.imageName},
+		Tags:       []string{config.ImageName},
 		Dockerfile: "Dockerfile",
 		Remove:     true,
 	}
@@ -251,7 +293,7 @@ func (config *Config) buildRunnerImage() error {
 		return err
 	}
 
-	res, er := config.cli.ImageBuild(config.ctx, buildContext, options)
+	res, er := config.Cli.ImageBuild(config.Ctx, buildContext, options)
 	if er != nil {
 		log.Println(er)
 		return er
@@ -319,14 +361,14 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 }
 
 func (config *Config) haveToBuild() (bool, error) {
-	list, e := config.cli.ImageList(config.ctx, image.ListOptions{})
+	list, e := config.Cli.ImageList(config.Ctx, image.ListOptions{})
 	if e != nil {
 		log.Println(e)
-		return true, fmt.Errorf("does not find %s can not get image list", config.imageName)
+		return true, fmt.Errorf("does not find %s can not get image list", config.ImageName)
 	}
 	for _, v := range list {
 		for _, t := range v.RepoTags {
-			if t == config.imageName {
+			if t == config.ImageName {
 				return false, nil
 			}
 		}
@@ -335,13 +377,13 @@ func (config *Config) haveToBuild() (bool, error) {
 }
 
 func (config *Config) refreshToken() error {
-	if config.tokenExpire != nil && config.tokenExpire.Before(time.Now()) {
-		newToken, newExpire, e := getGitHubToken()
+	if config.TokenExpire != nil && config.TokenExpire.Before(time.Now()) {
+		newToken, newExpire, e := config.GithubAuth.getGitHubToken()
 		if e != nil {
 			return fmt.Errorf("Can not get GitHub token %s", e)
 		}
-		config.githubAccessToken = newToken
-		config.tokenExpire = newExpire
+		config.GithubAccessToken = newToken
+		config.TokenExpire = newExpire
 	}
 	return nil
 }
