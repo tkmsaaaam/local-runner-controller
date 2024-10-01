@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/google/go-github/v64/github"
 	"github.com/jferrl/go-githubauth"
 )
 
@@ -172,7 +173,7 @@ func makeConfig() (*Config, error) {
 		if env.Github.Auth.App.InstallationId == 0 {
 			return nil, fmt.Errorf("github.auth.app.installation_id is not registered in config.json")
 		}
-		token, expiresAt, err = env.Github.Auth.getGitHubToken()
+		token, expiresAt, err = env.Github.Auth.getGitHubToken(env.Github.Repository.Name)
 		if err != nil {
 			return nil, fmt.Errorf("Can not get GitHub Token %s", err)
 		}
@@ -201,7 +202,7 @@ func makeConfig() (*Config, error) {
 	return config, nil
 }
 
-func (auth *GitHubAuth) getGitHubToken() (string, *time.Time, error) {
+func (auth *GitHubAuth) getGitHubToken(repo string) (string, *time.Time, error) {
 	if !auth.IsApp {
 		return auth.AccessToken, nil, nil
 	}
@@ -214,7 +215,9 @@ func (auth *GitHubAuth) getGitHubToken() (string, *time.Time, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("Can not get access_token %s", err)
 	}
-	installationTokenSource := githubauth.NewInstallationTokenSource(auth.App.InstallationId, appTokenSource)
+	installationTokenSource := githubauth.NewInstallationTokenSource(auth.App.InstallationId, appTokenSource, githubauth.WithInstallationTokenOptions(&github.InstallationTokenOptions{
+		Repositories: []string{repo},
+	}))
 	token, err := installationTokenSource.Token()
 	if err != nil {
 		return "", nil, fmt.Errorf("Can not get token %s", err)
@@ -378,7 +381,7 @@ func (config *Config) haveToBuild() (bool, error) {
 
 func (config *Config) refreshToken() error {
 	if config.TokenExpire != nil && config.TokenExpire.Before(time.Now()) {
-		newToken, newExpire, e := config.GithubAuth.getGitHubToken()
+		newToken, newExpire, e := config.GithubAuth.getGitHubToken(config.Repository.Name)
 		if e != nil {
 			return fmt.Errorf("Can not get GitHub token %s", e)
 		}
