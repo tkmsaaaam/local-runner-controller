@@ -42,6 +42,7 @@ type Repository struct {
 
 type Env struct {
 	Github struct {
+		OrgName string `json:"org_name"`
 		Repository Repository `json:"repository"`
 		Auth       GitHubAuth `json:"auth"`
 	} `json:"github"`
@@ -56,6 +57,7 @@ type Config struct {
 	GithubAccessToken string
 	TokenExpire       *time.Time
 	Repository        *Repository
+	OrgName *string
 	Limit             int
 }
 
@@ -178,6 +180,21 @@ func makeConfig() (*Config, error) {
 			return nil, fmt.Errorf("Can not get GitHub Token %s", err)
 		}
 	}
+	var orgName *string
+	var repository *Repository
+	if env.Github.OrgName != "" {
+		repository = nil
+		orgName = &env.Github.OrgName
+	} else {
+		orgName = nil
+				if env.Github.Repository.Owner == "" {
+			return nil, fmt.Errorf("github.repository.onwer is not registered in config.json")
+		}
+						if env.Github.Repository.Name == "" {
+			return nil, fmt.Errorf("github.repository.Name is not registered in config.json")
+		}
+		repository = &env.Github.Repository
+	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -195,7 +212,8 @@ func makeConfig() (*Config, error) {
 		ImageName:         "local-runner:latest",
 		GithubAccessToken: token,
 		TokenExpire:       expiresAt,
-		Repository:        &env.Github.Repository,
+		OrgName: orgName,
+		Repository:        repository,
 		Limit:             limit,
 	}
 
@@ -238,9 +256,15 @@ func (config *Config) handleContainer() *error {
 	if config.Limit > count {
 		// コンテナの設定
 		config.refreshToken()
+		var env []string
+		if config.OrgName != nil {
+			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName}
+		} else {
+			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name}
+		}
 		containerConfig := &container.Config{
 			Image: config.ImageName,
-			Env:   []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name},
+			Env:   env,
 		}
 
 		// ホスト設定（自動削除など）
