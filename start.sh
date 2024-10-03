@@ -14,5 +14,5 @@ export TOKEN=`curl -L \
   -H "Authorization: Bearer $GITHUB_ACCESS_TOKEN" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   $url/actions/runners/registration-token | jq -r .token`
-  /actions-runner/config.sh --url https://$GITHUB_DOMAIN/$target --token $TOKEN --ephemeral
+  /actions-runner/config.sh --url https://$GITHUB_DOMAIN/$target --token $TOKEN --ephemeral --labels $LABELS
   /actions-runner/run.sh --ephemeral

@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,11 +43,12 @@ type Repository struct {
 
 type Env struct {
 	Github struct {
-		OrgName string `json:"org_name"`
+		OrgName    string     `json:"org_name"`
 		Repository Repository `json:"repository"`
 		Auth       GitHubAuth `json:"auth"`
 	} `json:"github"`
-	RunnerLimit int `json:"runner_limit"`
+	RunnerLimit int      `json:"runner_limit"`
+	Labels      []string `json:"labels"`
 }
 
 type Config struct {
@@ -57,8 +59,9 @@ type Config struct {
 	GithubAccessToken string
 	TokenExpire       *time.Time
 	Repository        *Repository
-	OrgName *string
+	OrgName           *string
 	Limit             int
+	Labels            []string
 }
 
 func main() {
@@ -187,10 +190,10 @@ func makeConfig() (*Config, error) {
 		orgName = &env.Github.OrgName
 	} else {
 		orgName = nil
-				if env.Github.Repository.Owner == "" {
+		if env.Github.Repository.Owner == "" {
 			return nil, fmt.Errorf("github.repository.onwer is not registered in config.json")
 		}
-						if env.Github.Repository.Name == "" {
+		if env.Github.Repository.Name == "" {
 			return nil, fmt.Errorf("github.repository.Name is not registered in config.json")
 		}
 		repository = &env.Github.Repository
@@ -212,9 +215,10 @@ func makeConfig() (*Config, error) {
 		ImageName:         "local-runner:latest",
 		GithubAccessToken: token,
 		TokenExpire:       expiresAt,
-		OrgName: orgName,
+		OrgName:           orgName,
 		Repository:        repository,
 		Limit:             limit,
+		Labels:            env.Labels,
 	}
 
 	return config, nil
@@ -258,9 +262,9 @@ func (config *Config) handleContainer() *error {
 		config.refreshToken()
 		var env []string
 		if config.OrgName != nil {
-			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName}
+			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
 		} else {
-			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name}
+			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
 		}
 		containerConfig := &container.Config{
 			Image: config.ImageName,
