@@ -318,23 +318,21 @@ func (config *Config) buildRunnerImage() error {
 		Remove:     true,
 	}
 
-	buildContext, err := createBuildContext("./")
+	buildContext, err := createBuildContext("./dockerfiles")
 	if err != nil {
-		log.Println("Error creating build context: ", err)
-		return err
+		return fmt.Errorf("Error creating build context: %s", err)
 	}
 
 	res, er := config.Cli.ImageBuild(config.Ctx, buildContext, options)
 	if er != nil {
-		log.Println(er)
-		return er
+		return fmt.Errorf("build failed: %s", er)
 	}
 	defer res.Body.Close()
 
 	// ビルドの出力を表示
 	_, err = io.Copy(os.Stdout, res.Body)
 	if err != nil {
-		log.Println("Error reading build output: ", err)
+		return fmt.Errorf("Error reading build output: %s", err)
 	}
 
 	log.Println("Docker image built successfully!")
@@ -361,7 +359,12 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 		if err != nil {
 			return err
 		}
-		header.Name = file // ファイルパスを保持
+		// ヘッダーの名前を相対パスに変更
+		relPath, err := filepath.Rel(dir, file)
+		if err != nil {
+			return err
+		}
+		header.Name = relPath
 
 		if err := tw.WriteHeader(header); err != nil {
 			return err
