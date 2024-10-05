@@ -47,6 +47,7 @@ type Env struct {
 		Repository Repository `json:"repository"`
 		Auth       GitHubAuth `json:"auth"`
 	} `json:"github"`
+	BaseImage   string   `json:"base_image"`
 	RunnerLimit int      `json:"runner_limit"`
 	Labels      []string `json:"labels"`
 }
@@ -62,6 +63,11 @@ type Config struct {
 	OrgName           *string
 	Limit             int
 	Labels            []string
+	BaseImage         string
+}
+
+func (config *Config) imageName() string {
+	return config.ImageName + ":" + config.BaseImage + "-" + "2.319.1"
 }
 
 func main() {
@@ -122,7 +128,7 @@ func main() {
 			config.refreshToken()
 			containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 			for _, v := range containers {
-				if v.Image == config.ImageName {
+				if v.Image == config.imageName() {
 					res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
 						Cmd: []string{"/bin/bash", "-c", "export GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken + " && /actions-runner/stop.sh"},
 					})
@@ -209,16 +215,26 @@ func makeConfig() (*Config, error) {
 		limit = 2
 	}
 
+	var baseImage = "Jammy"
+	if env.BaseImage != "" {
+		_, err := os.Stat("./dockerfiles/Dockerfile" + env.BaseImage)
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("Can not find ./dockerfiles/Dockerfile%s", env.BaseImage)
+		}
+		baseImage = env.BaseImage
+	}
+
 	config := &Config{
 		Cli:               cli,
 		Ctx:               context.Background(),
-		ImageName:         "local-runner:latest",
+		ImageName:         "local-runner",
 		GithubAccessToken: token,
 		TokenExpire:       expiresAt,
 		OrgName:           orgName,
 		Repository:        repository,
 		Limit:             limit,
 		Labels:            env.Labels,
+		BaseImage:         baseImage,
 	}
 
 	return config, nil
@@ -253,7 +269,7 @@ func (config *Config) handleContainer() *error {
 	containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 	var count = 0
 	for _, v := range containers {
-		if v.Image == config.ImageName {
+		if v.Image == config.imageName() {
 			count++
 		}
 	}
@@ -267,7 +283,7 @@ func (config *Config) handleContainer() *error {
 			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
 		}
 		containerConfig := &container.Config{
-			Image: config.ImageName,
+			Image: config.imageName(),
 			Env:   env,
 		}
 
@@ -313,8 +329,8 @@ func (config *Config) handleContainer() *error {
 func (config *Config) buildRunnerImage() error {
 	// イメージビルドオプションの設定
 	options := types.ImageBuildOptions{
-		Tags:       []string{config.ImageName},
-		Dockerfile: "Dockerfile",
+		Tags:       []string{config.imageName()},
+		Dockerfile: "Dockerfile" + config.BaseImage,
 		Remove:     true,
 	}
 
@@ -398,11 +414,11 @@ func (config *Config) haveToBuild() (bool, error) {
 	list, e := config.Cli.ImageList(config.Ctx, image.ListOptions{})
 	if e != nil {
 		log.Println(e)
-		return true, fmt.Errorf("does not find %s can not get image list", config.ImageName)
+		return true, fmt.Errorf("does not find %s can not get image list", config.imageName())
 	}
 	for _, v := range list {
 		for _, t := range v.RepoTags {
-			if t == config.ImageName {
+			if t == config.imageName() {
 				return false, nil
 			}
 		}
