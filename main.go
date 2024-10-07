@@ -89,8 +89,7 @@ func main() {
 			return
 		}
 	}
-	ee := config.handleContainer()
-	if ee != nil {
+	if ee := config.handleContainer(); ee != nil {
 		log.Println(ee)
 		return
 	}
@@ -116,8 +115,7 @@ func main() {
 		case event := <-eventsChan:
 			if event.Type == events.ContainerEventType && event.Action == "die" {
 				log.Println("Container", event.Actor.ID, " has exited", event.Actor.Attributes)
-				ee := config.handleContainer()
-				if ee != nil {
+				if ee := config.handleContainer(); ee != nil {
 					log.Println(ee)
 					return
 				}
