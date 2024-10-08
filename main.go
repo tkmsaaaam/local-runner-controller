@@ -43,6 +43,8 @@ type Repository struct {
 
 type Env struct {
 	Github struct {
+		ApiDomain  string     `json:"api_domain"`
+		Domain     string     `json:"domain"`
 		OrgName    string     `json:"org_name"`
 		Repository Repository `json:"repository"`
 		Auth       GitHubAuth `json:"auth"`
@@ -64,6 +66,8 @@ type Config struct {
 	Limit             int
 	Labels            []string
 	BaseImage         string
+	ApiDomain         string
+	Domain            string
 }
 
 func (config *Config) imageName() string {
@@ -222,6 +226,15 @@ func makeConfig() (*Config, error) {
 		baseImage = env.BaseImage
 	}
 
+	var apiDomain = "api.github.com"
+	if env.Github.ApiDomain != "" {
+		apiDomain = env.Github.ApiDomain
+	}
+	var domain = "github.com"
+	if env.Github.Domain != "" {
+		domain = env.Github.Domain
+	}
+
 	config := &Config{
 		Cli:               cli,
 		Ctx:               context.Background(),
@@ -233,6 +246,8 @@ func makeConfig() (*Config, error) {
 		Limit:             limit,
 		Labels:            env.Labels,
 		BaseImage:         baseImage,
+		ApiDomain:         apiDomain,
+		Domain:            domain,
 	}
 
 	return config, nil
@@ -276,9 +291,9 @@ func (config *Config) handleContainer() *error {
 		config.refreshToken()
 		var env []string
 		if config.OrgName != nil {
-			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
 		} else {
-			env = []string{"GITHUB_API_DOMAIN=api.github.com", "GITHUB_DOMAIN=github.com", "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
 		}
 		containerConfig := &container.Config{
 			Image: config.imageName(),
