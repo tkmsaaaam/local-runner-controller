@@ -168,6 +168,22 @@ func makeConfig() (*Config, error) {
 		return nil, fmt.Errorf("github.repository.owner is not registered in config.json")
 	}
 
+	var orgName *string
+	var repository *Repository
+	if env.Github.OrgName != "" {
+		repository = nil
+		orgName = &env.Github.OrgName
+	} else {
+		orgName = nil
+		if env.Github.Repository.Owner == "" {
+			return nil, fmt.Errorf("github.repository.onwer is not registered in config.json")
+		}
+		if env.Github.Repository.Name == "" {
+			return nil, fmt.Errorf("github.repository.Name is not registered in config.json")
+		}
+		repository = &env.Github.Repository
+	}
+
 	var token string
 	var expiresAt *time.Time
 	if !env.Github.Auth.IsApp {
@@ -186,25 +202,10 @@ func makeConfig() (*Config, error) {
 		if env.Github.Auth.App.InstallationId == 0 {
 			return nil, fmt.Errorf("github.auth.app.installation_id is not registered in config.json")
 		}
-		token, expiresAt, err = env.Github.Auth.getGitHubToken(env.Github.Repository.Name)
+		token, expiresAt, err = env.Github.Auth.getGitHubToken(repository)
 		if err != nil {
 			return nil, fmt.Errorf("Can not get GitHub Token %s", err)
 		}
-	}
-	var orgName *string
-	var repository *Repository
-	if env.Github.OrgName != "" {
-		repository = nil
-		orgName = &env.Github.OrgName
-	} else {
-		orgName = nil
-		if env.Github.Repository.Owner == "" {
-			return nil, fmt.Errorf("github.repository.onwer is not registered in config.json")
-		}
-		if env.Github.Repository.Name == "" {
-			return nil, fmt.Errorf("github.repository.Name is not registered in config.json")
-		}
-		repository = &env.Github.Repository
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -253,7 +254,7 @@ func makeConfig() (*Config, error) {
 	return config, nil
 }
 
-func (auth *GitHubAuth) getGitHubToken(repo string) (string, *time.Time, error) {
+func (auth *GitHubAuth) getGitHubToken(repo *Repository) (string, *time.Time, error) {
 	if !auth.IsApp {
 		return auth.AccessToken, nil, nil
 	}
@@ -266,8 +267,14 @@ func (auth *GitHubAuth) getGitHubToken(repo string) (string, *time.Time, error) 
 	if err != nil {
 		return "", nil, fmt.Errorf("Can not get access_token %s", err)
 	}
+
+	var repos = []string{}
+	if repo != nil {
+		repos = []string{repo.Name}
+	}
+
 	installationTokenSource := githubauth.NewInstallationTokenSource(auth.App.InstallationId, appTokenSource, githubauth.WithInstallationTokenOptions(&github.InstallationTokenOptions{
-		Repositories: []string{repo},
+		Repositories: repos,
 	}))
 	token, err := installationTokenSource.Token()
 	if err != nil {
@@ -441,7 +448,7 @@ func (config *Config) haveToBuild() (bool, error) {
 
 func (config *Config) refreshToken() error {
 	if config.TokenExpire != nil && config.TokenExpire.Before(time.Now()) {
-		newToken, newExpire, e := config.GithubAuth.getGitHubToken(config.Repository.Name)
+		newToken, newExpire, e := config.GithubAuth.getGitHubToken(config.Repository)
 		if e != nil {
 			return fmt.Errorf("Can not get GitHub token %s", e)
 		}
