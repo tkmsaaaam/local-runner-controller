@@ -1,3 +1,9 @@
+FROM golang:1.23 AS setup
+WORKDIR /app
+RUN git clone https://github.com/tkmsaaaam/raspi-manager.git --depth=1
+WORKDIR /app/raspi-manager/k8s/countCommitsJs/jwt
+RUN go build .
+
 FROM ubuntu:24.04
 
 RUN apt-get update && \
@@ -15,6 +21,7 @@ RUN curl -o actions-runner-linux-x64-2.319.1.tar.gz -L https://github.com/action
   tar xzf ./actions-runner-linux-x64-2.319.1.tar.gz && \
   ./bin/installdependencies.sh
 
+COPY --from=setup /app/raspi-manager/k8s/countCommitsJs/jwt/jwt /actions-runner/jwt
 COPY start.sh stop.sh /actions-runner/
 RUN chmod +x /actions-runner/start.sh /actions-runner/stop.sh
 

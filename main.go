@@ -55,19 +55,17 @@ type Env struct {
 }
 
 type Config struct {
-	Cli               *client.Client
-	Ctx               context.Context
-	ImageName         string
-	GithubAuth        GitHubAuth
-	GithubAccessToken string
-	TokenExpire       *time.Time
-	Repository        *Repository
-	OrgName           *string
-	Limit             int
-	Labels            []string
-	BaseImage         string
-	ApiDomain         string
-	Domain            string
+	Cli        *client.Client
+	Ctx        context.Context
+	ImageName  string
+	GithubAuth GitHubAuth
+	Repository *Repository
+	OrgName    *string
+	Limit      int
+	Labels     []string
+	BaseImage  string
+	ApiDomain  string
+	Domain     string
 }
 
 func (config *Config) imageName() string {
@@ -127,12 +125,11 @@ func main() {
 		case err := <-errorsChan:
 			log.Println("Error while listening to Docker events: ", err)
 		case <-done:
-			config.refreshToken()
 			containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 			for _, v := range containers {
 				if v.Image == config.imageName() {
 					res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
-						Cmd: []string{"/bin/bash", "-c", "export GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken + " && /actions-runner/stop.sh"},
+						Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
 					})
 					if err != nil {
 						log.Println("Can not delete container ", err)
@@ -184,14 +181,10 @@ func makeConfig() (*Config, error) {
 		repository = &env.Github.Repository
 	}
 
-	var token string
-	var expiresAt *time.Time
 	if !env.Github.Auth.IsApp {
 		if env.Github.Auth.AccessToken == "" {
 			return nil, fmt.Errorf("github.auth.access_token is not registered in config.json")
 		}
-		token = env.Github.Auth.AccessToken
-		expiresAt = nil
 	} else {
 		if env.Github.Auth.App.KeyPath == "" {
 			return nil, fmt.Errorf("github.auth.app.key_path is not registered in config.json")
@@ -201,10 +194,6 @@ func makeConfig() (*Config, error) {
 		}
 		if env.Github.Auth.App.InstallationId == 0 {
 			return nil, fmt.Errorf("github.auth.app.installation_id is not registered in config.json")
-		}
-		token, expiresAt, err = env.Github.Auth.getGitHubToken(repository)
-		if err != nil {
-			return nil, fmt.Errorf("Can not get GitHub Token %s", err)
 		}
 	}
 
@@ -237,18 +226,17 @@ func makeConfig() (*Config, error) {
 	}
 
 	config := &Config{
-		Cli:               cli,
-		Ctx:               context.Background(),
-		ImageName:         "local-runner",
-		GithubAccessToken: token,
-		TokenExpire:       expiresAt,
-		OrgName:           orgName,
-		Repository:        repository,
-		Limit:             limit,
-		Labels:            env.Labels,
-		BaseImage:         baseImage,
-		ApiDomain:         apiDomain,
-		Domain:            domain,
+		Cli:        cli,
+		Ctx:        context.Background(),
+		ImageName:  "local-runner",
+		GithubAuth: env.Github.Auth,
+		OrgName:    orgName,
+		Repository: repository,
+		Limit:      limit,
+		Labels:     env.Labels,
+		BaseImage:  baseImage,
+		ApiDomain:  apiDomain,
+		Domain:     domain,
 	}
 
 	return config, nil
@@ -295,13 +283,29 @@ func (config *Config) handleContainer() *error {
 	}
 	if config.Limit > count {
 		// コンテナの設定
-		config.refreshToken()
 		var env []string
 		if config.OrgName != nil {
-			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
 		} else {
-			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_ACCESS_TOKEN=" + config.GithubAccessToken, "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
 		}
+
+		var binds []string
+		if config.GithubAuth.IsApp {
+
+			env = append(env, "APP_ID="+strconv.FormatInt(config.GithubAuth.App.Id, 10), "INSTALL_ID="+strconv.FormatInt(config.GithubAuth.App.InstallationId, 10), "KEY_FILE_PATH=/mnt/private-key.pem")
+			binds = []string{
+				fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
+			}
+		} else {
+			patFile, _ := os.Create("./pat.txt")
+			patFile.Write([]byte(config.GithubAuth.AccessToken))
+			abspath, _ := filepath.Abs(patFile.Name())
+			binds = []string{
+				fmt.Sprintf("%s:%s:ro", abspath, "/mnt/pat.txt"), // roはリードオンリー
+			}
+		}
+
 		containerConfig := &container.Config{
 			Image: config.imageName(),
 			Env:   env,
@@ -310,6 +314,7 @@ func (config *Config) handleContainer() *error {
 		// ホスト設定（自動削除など）
 		hostConfig := &container.HostConfig{
 			AutoRemove: true, // コンテナ終了後に自動で削除
+			Binds:      binds,
 		}
 
 		j := config.Limit - count
@@ -444,16 +449,4 @@ func (config *Config) haveToBuild() (bool, error) {
 		}
 	}
 	return true, nil
-}
-
-func (config *Config) refreshToken() error {
-	if config.TokenExpire != nil && config.TokenExpire.Before(time.Now()) {
-		newToken, newExpire, e := config.GithubAuth.getGitHubToken(config.Repository)
-		if e != nil {
-			return fmt.Errorf("Can not get GitHub token %s", e)
-		}
-		config.GithubAccessToken = newToken
-		config.TokenExpire = newExpire
-	}
-	return nil
 }
