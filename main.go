@@ -72,6 +72,8 @@ func (config *Config) imageName() string {
 	return config.ImageName + ":" + config.BaseImage + "-" + "2.319.1"
 }
 
+const patPath = "./pat.txt"
+
 func main() {
 	config, err := makeConfig()
 	if err != nil {
@@ -298,7 +300,7 @@ func (config *Config) handleContainer() *error {
 				fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
 			}
 		} else {
-			patFile, _ := os.Create("./pat.txt")
+			patFile, _ := os.Create(patPath)
 			patFile.Write([]byte(config.GithubAuth.AccessToken))
 			abspath, _ := filepath.Abs(patFile.Name())
 			binds = []string{
