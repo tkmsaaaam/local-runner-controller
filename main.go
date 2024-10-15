@@ -69,7 +69,7 @@ type Config struct {
 }
 
 func (config *Config) imageName() string {
-	return config.ImageName + ":" + config.BaseImage + "-" + "2.319.1"
+	return config.ImageName + ":" + config.BaseImage + "-" + "2.320.0"
 }
 
 const patPath = "./pat.txt"
