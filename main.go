@@ -127,6 +127,7 @@ func main() {
 		case err := <-errorsChan:
 			log.Println("Error while listening to Docker events: ", err)
 		case <-done:
+			log.Println("Removing containers and ", patPath)
 			containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
 			for _, v := range containers {
 				if v.Image == config.imageName() {
@@ -137,12 +138,45 @@ func main() {
 						log.Println("Can not delete container ", err)
 						continue
 					}
-					_, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
+					var attachResp types.HijackedResponse
+					attachResp, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
 					if err != nil {
 						log.Println("Can not delete container ", err)
 						continue
 					}
+					defer attachResp.Close()
+					// 標準出力を読み取り
+					go func() {
+						if _, err := io.Copy(log.Writer(), attachResp.Reader); err != nil {
+							log.Printf("Error reading attached exec output: %s", err)
+						}
+					}()
+
+					// `exec`プロセスが終了するのを待つ
+					for {
+						// `ContainerExecInspect`で`exec`プロセスの状態を確認
+						execInspect, err := config.Cli.ContainerExecInspect(context.Background(), res.ID)
+						if err != nil {
+							log.Fatalf("Error inspecting exec instance: %s", err)
+						}
+
+						// 終了したかを確認
+						if execInspect.Running == false {
+							fmt.Printf("Exec process finished with exit code: %d\n", execInspect.ExitCode)
+							break
+						}
+
+						// 少し待ってから再度確認
+						time.Sleep(500 * time.Millisecond)
+					}
 					log.Println("Delete container id: ", v.ID)
+				}
+			}
+			if _, err := os.Stat(patPath); !os.IsExist(err) {
+				log.Println("Remove", patPath)
+				e := os.Remove(patPath)
+				if e != nil {
+					log.Println("Can not remove ", patPath, " ", e)
 				}
 			}
 			return
