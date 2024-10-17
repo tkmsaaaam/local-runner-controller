@@ -128,7 +128,11 @@ func main() {
 			log.Println("Error while listening to Docker events: ", err)
 		case <-done:
 			log.Println("Removing containers and ", patPath)
-			containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+			containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+			if err != nil {
+				log.Println("Can not remove containers", err)
+				return
+			}
 			for _, v := range containers {
 				if v.Image == config.imageName() {
 					res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
@@ -310,7 +314,13 @@ func (auth *GitHubAuth) getGitHubToken(repo *Repository) (string, *time.Time, er
 // コンテナ終了時のコールバック処理
 func (config *Config) handleContainer() *error {
 	// 必要な処理をここに実装
-	containers, _ := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+	containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+	if err != nil {
+		log.Println("Can not get container list")
+		res := fmt.Errorf("Can not get container list %s", err)
+		return &res
+	}
+
 	var count = 0
 	for _, v := range containers {
 		if v.Image == config.imageName() {
@@ -319,24 +329,34 @@ func (config *Config) handleContainer() *error {
 	}
 	if config.Limit > count {
 		// コンテナの設定
-		var env []string
+		var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
 		if config.OrgName != nil {
-			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_REPOSITORY_OWNER=" + *config.OrgName, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = append(env, "GITHUB_REPOSITORY_OWNER="+*config.OrgName, "LABELS="+strings.Join(config.Labels, ","))
 		} else {
-			env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc", "GITHUB_REPOSITORY_OWNER=" + config.Repository.Owner, "GITHUB_REPOSITORY_NAME=" + config.Repository.Name, "LABELS=" + strings.Join(config.Labels, ",")}
+			env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Repository.Owner, "GITHUB_REPOSITORY_NAME="+config.Repository.Name, "LABELS="+strings.Join(config.Labels, ","))
 		}
 
 		var binds []string
 		if config.GithubAuth.IsApp {
-
 			env = append(env, "APP_ID="+strconv.FormatInt(config.GithubAuth.App.Id, 10), "INSTALL_ID="+strconv.FormatInt(config.GithubAuth.App.InstallationId, 10), "KEY_FILE_PATH=/mnt/private-key.pem")
 			binds = []string{
 				fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
 			}
 		} else {
-			patFile, _ := os.Create(patPath)
+			patFile, err := os.Create(patPath)
+			if err != nil {
+				log.Println("Can not create file", patPath)
+				res := fmt.Errorf("Can not create file %s %s", patPath, err)
+				return &res
+			}
+
 			patFile.Write([]byte(config.GithubAuth.AccessToken))
-			abspath, _ := filepath.Abs(patFile.Name())
+			abspath, err := filepath.Abs(patFile.Name())
+			if err != nil {
+				log.Println("Can not get file path", patPath)
+				res := fmt.Errorf("Can not get file path %s %s", patPath, err)
+				return &res
+			}
 			binds = []string{
 				fmt.Sprintf("%s:%s:ro", abspath, "/mnt/pat.txt"), // roはリードオンリー
 			}
