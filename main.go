@@ -134,47 +134,48 @@ func main() {
 				return
 			}
 			for _, v := range containers {
-				if v.Image == config.imageName() {
-					res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
-						Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
-					})
-					if err != nil {
-						log.Println("Can not delete container ", err)
-						continue
-					}
-					var attachResp types.HijackedResponse
-					attachResp, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
-					if err != nil {
-						log.Println("Can not delete container ", err)
-						continue
-					}
-					defer attachResp.Close()
-					// 標準出力を読み取り
-					go func() {
-						if _, err := io.Copy(log.Writer(), attachResp.Reader); err != nil {
-							log.Printf("Error reading attached exec output: %s", err)
-						}
-					}()
-
-					// `exec`プロセスが終了するのを待つ
-					for {
-						// `ContainerExecInspect`で`exec`プロセスの状態を確認
-						execInspect, err := config.Cli.ContainerExecInspect(context.Background(), res.ID)
-						if err != nil {
-							log.Fatalf("Error inspecting exec instance: %s", err)
-						}
-
-						// 終了したかを確認
-						if execInspect.Running == false {
-							fmt.Printf("Exec process finished with exit code: %d\n", execInspect.ExitCode)
-							break
-						}
-
-						// 少し待ってから再度確認
-						time.Sleep(500 * time.Millisecond)
-					}
-					log.Println("Delete container id: ", v.ID)
+				if v.Image != config.imageName() {
+					continue
 				}
+				res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
+					Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
+				})
+				if err != nil {
+					log.Println("Can not delete container ", err)
+					continue
+				}
+				var attachResp types.HijackedResponse
+				attachResp, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
+				if err != nil {
+					log.Println("Can not delete container ", err)
+					continue
+				}
+				defer attachResp.Close()
+				// 標準出力を読み取り
+				go func() {
+					if _, err := io.Copy(log.Writer(), attachResp.Reader); err != nil {
+						log.Printf("Error reading attached exec output: %s", err)
+					}
+				}()
+
+				// `exec`プロセスが終了するのを待つ
+				for {
+					// `ContainerExecInspect`で`exec`プロセスの状態を確認
+					execInspect, err := config.Cli.ContainerExecInspect(context.Background(), res.ID)
+					if err != nil {
+						log.Fatalf("Error inspecting exec instance: %s", err)
+					}
+
+					// 終了したかを確認
+					if execInspect.Running == false {
+						fmt.Printf("Exec process finished with exit code: %d\n", execInspect.ExitCode)
+						break
+					}
+
+					// 少し待ってから再度確認
+					time.Sleep(500 * time.Millisecond)
+				}
+				log.Println("Delete container id: ", v.ID)
 			}
 			if _, err := os.Stat(patPath); !os.IsExist(err) {
 				log.Println("Remove", patPath)
@@ -314,94 +315,101 @@ func (auth *GitHubAuth) getGitHubToken(repo *Repository) (string, *time.Time, er
 // コンテナ終了時のコールバック処理
 func (config *Config) handleContainer() *error {
 	// 必要な処理をここに実装
-	containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+	images, err := config.Cli.ImageList(config.Ctx, image.ListOptions{})
 	if err != nil {
-		log.Println("Can not get container list")
-		res := fmt.Errorf("Can not get container list %s", err)
+		log.Println("Can not get image list")
+		res := fmt.Errorf("Can not get image list %s", err)
 		return &res
 	}
-
-	var count = 0
-	for _, v := range containers {
-		if v.Image == config.imageName() {
-			count++
+	var j = config.Limit
+	for _, v := range images {
+		for _, t := range v.RepoTags {
+			if t == config.imageName() {
+				if v.Containers >= int64(config.Limit) {
+					return nil
+				} else {
+					j = config.Limit - int(v.Containers)
+					break
+				}
+			}
 		}
 	}
-	if config.Limit > count {
-		// コンテナの設定
-		var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
-		if config.OrgName != nil {
-			env = append(env, "GITHUB_REPOSITORY_OWNER="+*config.OrgName, "LABELS="+strings.Join(config.Labels, ","))
-		} else {
-			env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Repository.Owner, "GITHUB_REPOSITORY_NAME="+config.Repository.Name, "LABELS="+strings.Join(config.Labels, ","))
+
+	if j < 1 {
+		return nil
+	}
+	// コンテナの設定
+	var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
+	if config.OrgName != nil {
+		env = append(env, "GITHUB_REPOSITORY_OWNER="+*config.OrgName, "LABELS="+strings.Join(config.Labels, ","))
+	} else {
+		env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Repository.Owner, "GITHUB_REPOSITORY_NAME="+config.Repository.Name, "LABELS="+strings.Join(config.Labels, ","))
+	}
+
+	var binds []string
+	if config.GithubAuth.IsApp {
+		env = append(env, "APP_ID="+strconv.FormatInt(config.GithubAuth.App.Id, 10), "INSTALL_ID="+strconv.FormatInt(config.GithubAuth.App.InstallationId, 10), "KEY_FILE_PATH=/mnt/private-key.pem")
+		binds = []string{
+			fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
+		}
+	} else {
+		patFile, err := os.Create(patPath)
+		if err != nil {
+			log.Println("Can not create file", patPath)
+			res := fmt.Errorf("Can not create file %s %s", patPath, err)
+			return &res
 		}
 
-		var binds []string
-		if config.GithubAuth.IsApp {
-			env = append(env, "APP_ID="+strconv.FormatInt(config.GithubAuth.App.Id, 10), "INSTALL_ID="+strconv.FormatInt(config.GithubAuth.App.InstallationId, 10), "KEY_FILE_PATH=/mnt/private-key.pem")
-			binds = []string{
-				fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
-			}
-		} else {
-			patFile, err := os.Create(patPath)
-			if err != nil {
-				log.Println("Can not create file", patPath)
-				res := fmt.Errorf("Can not create file %s %s", patPath, err)
-				return &res
-			}
+		patFile.Write([]byte(config.GithubAuth.AccessToken))
+		abspath, err := filepath.Abs(patFile.Name())
+		if err != nil {
+			log.Println("Can not get file path", patPath)
+			res := fmt.Errorf("Can not get file path %s %s", patPath, err)
+			return &res
+		}
+		binds = []string{
+			fmt.Sprintf("%s:%s:ro", abspath, "/mnt/pat.txt"), // roはリードオンリー
+		}
+	}
 
-			patFile.Write([]byte(config.GithubAuth.AccessToken))
-			abspath, err := filepath.Abs(patFile.Name())
-			if err != nil {
-				log.Println("Can not get file path", patPath)
-				res := fmt.Errorf("Can not get file path %s %s", patPath, err)
-				return &res
-			}
-			binds = []string{
-				fmt.Sprintf("%s:%s:ro", abspath, "/mnt/pat.txt"), // roはリードオンリー
-			}
+	containerConfig := &container.Config{
+		Image: config.imageName(),
+		Env:   env,
+	}
+
+	// ホスト設定（自動削除など）
+	hostConfig := &container.HostConfig{
+		AutoRemove: true, // コンテナ終了後に自動で削除
+		Binds:      binds,
+	}
+
+	for i := 0; i < j; i++ {
+		seed := time.Now().UnixNano()
+		rand.New(rand.NewSource(seed))
+		val := rand.Intn(100000)
+
+		// コンテナの作成
+		resp, err := config.Cli.ContainerCreate(
+			config.Ctx,
+			containerConfig,
+			hostConfig,
+			nil,
+			nil,
+			"local-runner-"+strconv.Itoa(val),
+		)
+
+		if err != nil {
+			log.Println("Error creating container: ", err)
+			continue
 		}
 
-		containerConfig := &container.Config{
-			Image: config.imageName(),
-			Env:   env,
-		}
+		// コンテナのIDを表示
+		log.Println("Container created with ID: ", resp.ID)
 
-		// ホスト設定（自動削除など）
-		hostConfig := &container.HostConfig{
-			AutoRemove: true, // コンテナ終了後に自動で削除
-			Binds:      binds,
-		}
-
-		j := config.Limit - count
-		for i := 0; i < j; i++ {
-			seed := time.Now().UnixNano()
-			rand.New(rand.NewSource(seed))
-			val := rand.Intn(100000)
-
-			// コンテナの作成
-			resp, err := config.Cli.ContainerCreate(
-				config.Ctx,
-				containerConfig,
-				hostConfig,
-				nil,
-				nil,
-				"local-runner-"+strconv.Itoa(val),
-			)
-
-			if err != nil {
-				log.Println("Error creating container: ", err)
-				continue
-			}
-
-			// コンテナのIDを表示
-			log.Println("Container created with ID: ", resp.ID)
-
-			// コンテナを起動
-			if err := config.Cli.ContainerStart(config.Ctx, resp.ID, container.StartOptions{}); err != nil {
-				log.Println("Error starting container: ", err)
-				continue
-			}
+		// コンテナを起動
+		if err := config.Cli.ContainerStart(config.Ctx, resp.ID, container.StartOptions{}); err != nil {
+			log.Println("Error starting container: ", err)
+			continue
 		}
 	}
 	return nil
