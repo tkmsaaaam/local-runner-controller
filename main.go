@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/google/go-github/v64/github"
@@ -128,15 +129,12 @@ func main() {
 			log.Println("Error while listening to Docker events: ", err)
 		case <-done:
 			log.Println("Removing containers and ", patPath)
-			containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{})
+			containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{Filters: filters.NewArgs(filters.KeyValuePair{Key: "ancestor", Value: config.imageName()})})
 			if err != nil {
 				log.Println("Can not remove containers", err)
 				return
 			}
 			for _, v := range containers {
-				if v.Image != config.imageName() {
-					continue
-				}
 				res, err := config.Cli.ContainerExecCreate(config.Ctx, v.ID, container.ExecOptions{
 					Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
 				})
@@ -315,29 +313,16 @@ func (auth *GitHubAuth) getGitHubToken(repo *Repository) (string, *time.Time, er
 // コンテナ終了時のコールバック処理
 func (config *Config) handleContainer() *error {
 	// 必要な処理をここに実装
-	images, err := config.Cli.ImageList(config.Ctx, image.ListOptions{})
+	containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{Filters: filters.NewArgs(filters.KeyValuePair{Key: "ancestor", Value: config.imageName()})})
 	if err != nil {
-		log.Println("Can not get image list")
-		res := fmt.Errorf("Can not get image list %s", err)
+		log.Println("Can not get containers list")
+		res := fmt.Errorf("Can not get containers list %s", err)
 		return &res
 	}
-	var j = config.Limit
-	for _, v := range images {
-		for _, t := range v.RepoTags {
-			if t == config.imageName() {
-				if v.Containers >= int64(config.Limit) {
-					return nil
-				} else {
-					j = config.Limit - int(v.Containers)
-					break
-				}
-			}
-		}
-	}
-
-	if j < 1 {
+	if len(containers) >= config.Limit {
 		return nil
 	}
+	j := config.Limit - len(containers)
 	// コンテナの設定
 	var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
 	if config.OrgName != nil {
