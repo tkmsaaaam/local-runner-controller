@@ -325,9 +325,13 @@ func (config *Config) handleContainer() *error {
 	j := config.Limit - len(containers)
 	// コンテナの設定
 	var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
+	labels := map[string]string{}
 	if config.OrgName != nil {
+		labels["owner"] = *config.OrgName
 		env = append(env, "GITHUB_REPOSITORY_OWNER="+*config.OrgName, "LABELS="+strings.Join(config.Labels, ","))
 	} else {
+		labels["owner"] = config.Repository.Owner
+		labels["repository"] = config.Repository.Name
 		env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Repository.Owner, "GITHUB_REPOSITORY_NAME="+config.Repository.Name, "LABELS="+strings.Join(config.Labels, ","))
 	}
 
@@ -358,8 +362,9 @@ func (config *Config) handleContainer() *error {
 	}
 
 	containerConfig := &container.Config{
-		Image: config.imageName(),
-		Env:   env,
+		Image:  config.imageName(),
+		Env:    env,
+		Labels: labels,
 	}
 
 	// ホスト設定（自動削除など）
