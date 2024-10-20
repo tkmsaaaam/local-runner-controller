@@ -23,50 +23,40 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
-	"github.com/google/go-github/v64/github"
-	"github.com/jferrl/go-githubauth"
 )
 
-type GitHubAuth struct {
+type Runner struct {
+	ApiDomain  string `json:"api_domain"`
+	Domain     string `json:"domain"`
+	Owner      string `json:"owner"`
+	Repository string `json:"repository"`
+	Auth       Auth   `json:"auth"`
+}
+type Auth struct {
 	IsApp       bool   `json:"is_app"`
 	AccessToken string `json:"access_token"`
 	App         struct {
-		Id             int64  `json:"id"`
-		InstallationId int64  `json:"installation_id"`
+		Id             int    `json:"id"`
+		InstallationId int    `json:"installation_id"`
 		KeyPath        string `json:"key_path"`
 	}
 }
 
-type Repository struct {
-	Owner string `json:"owner"`
-	Name  string `json:"name"`
-}
-
 type Env struct {
-	Github struct {
-		ApiDomain  string     `json:"api_domain"`
-		Domain     string     `json:"domain"`
-		OrgName    string     `json:"org_name"`
-		Repository Repository `json:"repository"`
-		Auth       GitHubAuth `json:"auth"`
-	} `json:"github"`
-	BaseImage   string   `json:"base_image"`
-	RunnerLimit int      `json:"runner_limit"`
-	Labels      []string `json:"labels"`
+	Runner    Runner   `json:"runner"`
+	BaseImage string   `json:"base_image"`
+	Limit     int      `json:"limit"`
+	Labels    []string `json:"labels"`
 }
 
 type Config struct {
-	Cli        *client.Client
-	Ctx        context.Context
-	ImageName  string
-	GithubAuth GitHubAuth
-	Repository *Repository
-	OrgName    *string
-	Limit      int
-	Labels     []string
-	BaseImage  string
-	ApiDomain  string
-	Domain     string
+	Cli       *client.Client
+	Ctx       context.Context
+	ImageName string
+	Runner    *Runner
+	Limit     int
+	Labels    []string
+	BaseImage string
 }
 
 func (config *Config) imageName() string {
@@ -197,51 +187,19 @@ func makeConfig() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Config file (config.json) is not invalid.")
 	}
-	if env.Github.Repository.Name == "" {
-		return nil, fmt.Errorf("github.repository.name is not registered in config.json")
-	}
-	if env.Github.Repository.Owner == "" {
-		return nil, fmt.Errorf("github.repository.owner is not registered in config.json")
+
+	if gitHubError := env.Runner.validate(); gitHubError != nil {
+		return nil, fmt.Errorf("Runner is not valid in config.json %s", gitHubError)
 	}
 
-	var orgName *string
-	var repository *Repository
-	if env.Github.OrgName != "" {
-		repository = nil
-		orgName = &env.Github.OrgName
-	} else {
-		orgName = nil
-		if env.Github.Repository.Owner == "" {
-			return nil, fmt.Errorf("github.repository.onwer is not registered in config.json")
-		}
-		if env.Github.Repository.Name == "" {
-			return nil, fmt.Errorf("github.repository.Name is not registered in config.json")
-		}
-		repository = &env.Github.Repository
-	}
-
-	if !env.Github.Auth.IsApp {
-		if env.Github.Auth.AccessToken == "" {
-			return nil, fmt.Errorf("github.auth.access_token is not registered in config.json")
-		}
-	} else {
-		if env.Github.Auth.App.KeyPath == "" {
-			return nil, fmt.Errorf("github.auth.app.key_path is not registered in config.json")
-		}
-		if env.Github.Auth.App.Id == 0 {
-			return nil, fmt.Errorf("github.auth.app.id is not registered in config.json")
-		}
-		if env.Github.Auth.App.InstallationId == 0 {
-			return nil, fmt.Errorf("github.auth.app.installation_id is not registered in config.json")
-		}
-	}
+	env.Runner.setDefaultValue()
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("Error creating Docker client: %s", err)
 	}
 
-	var limit = env.RunnerLimit
+	var limit = env.Limit
 	if limit == 0 {
 		limit = 2
 	}
@@ -255,59 +213,56 @@ func makeConfig() (*Config, error) {
 		baseImage = env.BaseImage
 	}
 
-	var apiDomain = "api.github.com"
-	if env.Github.ApiDomain != "" {
-		apiDomain = env.Github.ApiDomain
-	}
-	var domain = "github.com"
-	if env.Github.Domain != "" {
-		domain = env.Github.Domain
-	}
-
 	config := &Config{
-		Cli:        cli,
-		Ctx:        context.Background(),
-		ImageName:  "local-runner",
-		GithubAuth: env.Github.Auth,
-		OrgName:    orgName,
-		Repository: repository,
-		Limit:      limit,
-		Labels:     env.Labels,
-		BaseImage:  baseImage,
-		ApiDomain:  apiDomain,
-		Domain:     domain,
+		Cli:       cli,
+		Ctx:       context.Background(),
+		ImageName: "local-runner",
+		Runner:    &env.Runner,
+		Limit:     limit,
+		Labels:    env.Labels,
+		BaseImage: baseImage,
 	}
 
 	return config, nil
 }
 
-func (auth *GitHubAuth) getGitHubToken(repo *Repository) (string, *time.Time, error) {
+func (runner *Runner) validate() error {
+	if runner.Owner == "" {
+		return fmt.Errorf("onwer is empty")
+	}
+
+	if authError := runner.Auth.validate(); authError != nil {
+		return fmt.Errorf("auth is invalid %s", authError)
+	}
+	return nil
+}
+
+func (runner *Runner) setDefaultValue() {
+	if runner.ApiDomain == "" {
+		runner.ApiDomain = "api.github.com"
+	}
+	if runner.Domain == "" {
+		runner.Domain = "github.com"
+	}
+}
+
+func (auth *Auth) validate() error {
 	if !auth.IsApp {
-		return auth.AccessToken, nil, nil
+		if auth.AccessToken == "" {
+			return fmt.Errorf("access_token is empty")
+		}
+	} else {
+		if auth.App.KeyPath == "" {
+			return fmt.Errorf("key_path is empty")
+		}
+		if auth.App.Id == 0 {
+			return fmt.Errorf("app.id is empty")
+		}
+		if auth.App.InstallationId == 0 {
+			return fmt.Errorf("app.installation_id is empty")
+		}
 	}
-
-	key, err := os.ReadFile(auth.App.KeyPath)
-	if err != nil {
-		return "", nil, fmt.Errorf("Can not get app private key %s", err)
-	}
-	appTokenSource, err := githubauth.NewApplicationTokenSource(auth.App.Id, key)
-	if err != nil {
-		return "", nil, fmt.Errorf("Can not get access_token %s", err)
-	}
-
-	var repos = []string{}
-	if repo != nil {
-		repos = []string{repo.Name}
-	}
-
-	installationTokenSource := githubauth.NewInstallationTokenSource(auth.App.InstallationId, appTokenSource, githubauth.WithInstallationTokenOptions(&github.InstallationTokenOptions{
-		Repositories: repos,
-	}))
-	token, err := installationTokenSource.Token()
-	if err != nil {
-		return "", nil, fmt.Errorf("Can not get token %s", err)
-	}
-	return token.AccessToken, &token.Expiry, nil
+	return nil
 }
 
 // コンテナ終了時のコールバック処理
@@ -324,22 +279,22 @@ func (config *Config) handleContainer() *error {
 	}
 	j := config.Limit - len(containers)
 	// コンテナの設定
-	var env = []string{"GITHUB_API_DOMAIN=" + config.ApiDomain, "GITHUB_DOMAIN=" + config.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
+	var env = []string{"GITHUB_API_DOMAIN=" + config.Runner.ApiDomain, "GITHUB_DOMAIN=" + config.Runner.Domain, "RUNNER_ALLOW_RUNASROOT=abc"}
 	labels := map[string]string{}
-	if config.OrgName != nil {
-		labels["owner"] = *config.OrgName
-		env = append(env, "GITHUB_REPOSITORY_OWNER="+*config.OrgName, "LABELS="+strings.Join(config.Labels, ","))
+	if config.Runner.Repository == "" {
+		labels["owner"] = config.Runner.Owner
+		env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Runner.Owner, "LABELS="+strings.Join(config.Labels, ","))
 	} else {
-		labels["owner"] = config.Repository.Owner
-		labels["repository"] = config.Repository.Name
-		env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Repository.Owner, "GITHUB_REPOSITORY_NAME="+config.Repository.Name, "LABELS="+strings.Join(config.Labels, ","))
+		labels["owner"] = config.Runner.Owner
+		labels["repository"] = config.Runner.Repository
+		env = append(env, "GITHUB_REPOSITORY_OWNER="+config.Runner.Owner, "GITHUB_REPOSITORY_NAME="+config.Runner.Repository, "LABELS="+strings.Join(config.Labels, ","))
 	}
 
 	var binds []string
-	if config.GithubAuth.IsApp {
-		env = append(env, "APP_ID="+strconv.FormatInt(config.GithubAuth.App.Id, 10), "INSTALL_ID="+strconv.FormatInt(config.GithubAuth.App.InstallationId, 10), "KEY_FILE_PATH=/mnt/private-key.pem")
+	if config.Runner.Auth.IsApp {
+		env = append(env, "APP_ID="+strconv.Itoa(config.Runner.Auth.App.Id), "INSTALL_ID="+strconv.Itoa(config.Runner.Auth.App.InstallationId), "KEY_FILE_PATH=/mnt/private-key.pem")
 		binds = []string{
-			fmt.Sprintf("%s:%s:ro", config.GithubAuth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
+			fmt.Sprintf("%s:%s:ro", config.Runner.Auth.App.KeyPath, "/mnt/private-key.pem"), // roはリードオンリー
 		}
 	} else {
 		patFile, err := os.Create(patPath)
@@ -349,7 +304,7 @@ func (config *Config) handleContainer() *error {
 			return &res
 		}
 
-		patFile.Write([]byte(config.GithubAuth.AccessToken))
+		patFile.Write([]byte(config.Runner.Auth.AccessToken))
 		abspath, err := filepath.Abs(patFile.Name())
 		if err != nil {
 			log.Println("Can not get file path", patPath)
