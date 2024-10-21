@@ -71,7 +71,7 @@ func main() {
 		log.Println("Invalid enviroment variables: ", err)
 		return
 	}
-	build, e := config.haveToBuild()
+	build, e := config.hasToBuild()
 	if e != nil {
 		log.Println("Can not find image: ", e)
 		return
@@ -444,18 +444,14 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
-func (config *Config) haveToBuild() (bool, error) {
-	list, e := config.Cli.ImageList(config.Ctx, image.ListOptions{})
+func (config *Config) hasToBuild() (bool, error) {
+	list, e := config.Cli.ImageList(config.Ctx, image.ListOptions{Filters: filters.NewArgs(filters.KeyValuePair{Key: "reference", Value: config.imageName()})})
 	if e != nil {
 		log.Println(e)
 		return true, fmt.Errorf("does not find %s can not get image list", config.imageName())
 	}
-	for _, v := range list {
-		for _, t := range v.RepoTags {
-			if t == config.imageName() {
-				return false, nil
-			}
-		}
+	if len(list) > 0 {
+		return false, nil
 	}
 	return true, nil
 }
