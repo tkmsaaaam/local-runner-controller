@@ -78,8 +78,7 @@ func main() {
 	}
 
 	if build {
-		er := config.buildRunnerImage()
-		if er != nil {
+		if er := config.buildRunnerImage(); er != nil {
 			log.Println("Can not build: ", er)
 			return
 		}
@@ -169,8 +168,7 @@ func main() {
 			}
 			if _, err := os.Stat(patPath); !os.IsExist(err) {
 				log.Println("Remove", patPath)
-				e := os.Remove(patPath)
-				if e != nil {
+				if e := os.Remove(patPath); e != nil {
 					log.Println("Can not remove ", patPath, " ", e)
 				}
 			}
@@ -185,8 +183,7 @@ func makeConfig() (*Config, error) {
 		return nil, fmt.Errorf("Config file (config.json) is not present.")
 	}
 	var env Env
-	err = json.Unmarshal(bytes, &env)
-	if err != nil {
+	if err = json.Unmarshal(bytes, &env); err != nil {
 		return nil, fmt.Errorf("Config file (config.json) is not invalid.")
 	}
 
@@ -208,8 +205,7 @@ func makeConfig() (*Config, error) {
 
 	var baseImage = "Jammy"
 	if env.BaseImage != "" {
-		_, err := os.Stat("./dockerfiles/Dockerfile" + env.BaseImage)
-		if os.IsNotExist(err) {
+		if _, err := os.Stat("./dockerfiles/Dockerfile" + env.BaseImage); os.IsNotExist(err) {
 			return nil, fmt.Errorf("Can not find ./dockerfiles/Dockerfile%s", env.BaseImage)
 		}
 		baseImage = env.BaseImage
@@ -382,8 +378,7 @@ func (config *Config) buildRunnerImage() error {
 	defer res.Body.Close()
 
 	// ビルドの出力を表示
-	_, err = io.Copy(os.Stdout, res.Body)
-	if err != nil {
+	if _, err = io.Copy(os.Stdout, res.Body); err != nil {
 		return fmt.Errorf("Error reading build output: %s", err)
 	}
 
