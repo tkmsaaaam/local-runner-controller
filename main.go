@@ -109,10 +109,12 @@ func main() {
 		select {
 		case event := <-eventsChan:
 			if event.Type == events.ContainerEventType && event.Action == "die" {
-				log.Println("Container", event.Actor.ID, " has exited", event.Actor.Attributes)
-				if ee := config.handleContainer(); ee != nil {
-					log.Println(ee)
-					return
+				if event.Actor.Attributes["image"] == config.imageName() {
+					log.Println("Container", event.Actor.ID, " has exited", event.Actor.Attributes)
+					if ee := config.handleContainer(); ee != nil {
+						log.Println(ee)
+						return
+					}
 				}
 			}
 		case err := <-errorsChan:
