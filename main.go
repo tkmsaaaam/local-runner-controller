@@ -130,13 +130,13 @@ func main() {
 					Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
 				})
 				if err != nil {
-					log.Println("Can not delete container ", err)
+					log.Println("Can not remove container ", err)
 					continue
 				}
 				var attachResp types.HijackedResponse
 				attachResp, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
 				if err != nil {
-					log.Println("Can not delete container ", err)
+					log.Println("Can not remove container ", err)
 					continue
 				}
 				defer attachResp.Close()
@@ -164,7 +164,7 @@ func main() {
 					// 少し待ってから再度確認
 					time.Sleep(500 * time.Millisecond)
 				}
-				log.Println("Delete container id: ", v.ID)
+				log.Println("Remove container id: ", v.ID)
 			}
 			if _, err := os.Stat(patPath); !os.IsExist(err) {
 				log.Println("Remove", patPath)
