@@ -52,7 +52,6 @@ type Env struct {
 type Config struct {
 	Cli       *client.Client
 	Ctx       context.Context
-	ImageName string
 	Runner    *Runner
 	Limit     int
 	Labels    []string
@@ -60,7 +59,7 @@ type Config struct {
 }
 
 func (config *Config) imageName() string {
-	return config.ImageName + ":" + config.BaseImage + "-" + "2.320.0"
+	return "local-runner:" + config.BaseImage + "-" + "2.320.0"
 }
 
 const patPath = "./pat.txt"
@@ -214,7 +213,6 @@ func makeConfig() (*Config, error) {
 	config := &Config{
 		Cli:       cli,
 		Ctx:       context.Background(),
-		ImageName: "local-runner",
 		Runner:    &env.Runner,
 		Limit:     limit,
 		Labels:    env.Labels,
