@@ -177,7 +177,11 @@ func main() {
 }
 
 func makeConfig() (*Config, error) {
-	bytes, err := os.ReadFile("config.json")
+	p := os.Getenv("LOCAL_RUNNER_CONTROLLER_CONFIG_PATH")
+	if p == "" {
+		p = "config.json"
+	}
+	bytes, err := os.ReadFile(p)
 	if err != nil {
 		return nil, fmt.Errorf("Config file (config.json) is not present.")
 	}
