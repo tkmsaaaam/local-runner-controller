@@ -30,7 +30,7 @@ type Runner struct {
 	Domain     string `json:"domain"`
 	Owner      string `json:"owner"`
 	Repository string `json:"repository"`
-	Auth       Auth   `json:"auth"`
+	Auth       *Auth  `json:"auth"`
 }
 type Auth struct {
 	IsApp       bool   `json:"is_app"`
@@ -43,7 +43,7 @@ type Auth struct {
 }
 
 type Env struct {
-	Runner    Runner   `json:"runner"`
+	Runner    *Runner  `json:"runner"`
 	BaseImage string   `json:"base_image"`
 	Limit     int      `json:"limit"`
 	Labels    []string `json:"labels"`
@@ -217,7 +217,7 @@ func makeConfig() (*Config, error) {
 	config := &Config{
 		Cli:       cli,
 		Ctx:       context.Background(),
-		Runner:    &env.Runner,
+		Runner:    env.Runner,
 		Limit:     limit,
 		Labels:    env.Labels,
 		BaseImage: baseImage,
