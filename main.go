@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,10 +44,12 @@ type Auth struct {
 }
 
 type Env struct {
-	Runner    *Runner  `json:"runner"`
-	BaseImage string   `json:"base_image"`
-	Limit     int      `json:"limit"`
-	Labels    []string `json:"labels"`
+	Runner        *Runner  `json:"runner"`
+	BaseImage     string   `json:"base_image"`
+	Limit         int      `json:"limit"`
+	Labels        []string `json:"labels"`
+	ContainerHost string   `json:"container_host"`
+	ImageHost     string   `json:"image_host"`
 }
 
 type Config struct {
@@ -56,10 +59,15 @@ type Config struct {
 	Limit     int
 	Labels    []string
 	BaseImage string
+	ImageHost string
 }
 
 func (config *Config) imageName() string {
-	return "local-runner:" + config.BaseImage + "-" + "2.321.0"
+	version := "2.321.0"
+	if config.ImageHost != "" {
+		return config.ImageHost + "/local-runner:" + config.BaseImage + "-" + version
+	}
+	return "local-runner:" + config.BaseImage + "-" + version
 }
 
 const patPath = "./pat.txt"
@@ -82,6 +90,7 @@ func main() {
 			return
 		}
 	}
+	log.Println("Started")
 	if ee := config.handleContainer(); ee != nil {
 		log.Println(ee)
 		return
@@ -129,13 +138,13 @@ func main() {
 					Cmd: []string{"/bin/bash", "-c", "/actions-runner/stop.sh"},
 				})
 				if err != nil {
-					log.Println("Can not remove container ", err)
+					log.Println("Can not remove container ContainerExecCreate ", err)
 					continue
 				}
 				var attachResp types.HijackedResponse
-				attachResp, err = config.Cli.ContainerExecAttach(context.Background(), res.ID, container.ExecStartOptions{})
+				attachResp, err = config.Cli.ContainerExecAttach(config.Ctx, res.ID, container.ExecStartOptions{})
 				if err != nil {
-					log.Println("Can not remove container ", err)
+					log.Println("Can not remove container ContainerExecAttach", err)
 					continue
 				}
 				defer attachResp.Close()
@@ -196,7 +205,12 @@ func makeConfig() (*Config, error) {
 
 	env.Runner.setDefaultValue()
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	var containerHost = "unix:///var/run/docker.sock"
+	if env.ContainerHost != "" {
+		containerHost = env.ContainerHost
+	}
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithHost(containerHost))
 	if err != nil {
 		return nil, fmt.Errorf("Error creating Docker client: %s", err)
 	}
@@ -214,6 +228,15 @@ func makeConfig() (*Config, error) {
 		baseImage = env.BaseImage
 	}
 
+	host := ""
+	if env.ImageHost != "" {
+		_, err := url.Parse(env.ImageHost)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid image host %s %s", env.ImageHost, err)
+		}
+		host = env.ImageHost
+	}
+
 	config := &Config{
 		Cli:       cli,
 		Ctx:       context.Background(),
@@ -221,6 +244,7 @@ func makeConfig() (*Config, error) {
 		Limit:     limit,
 		Labels:    env.Labels,
 		BaseImage: baseImage,
+		ImageHost: host,
 	}
 
 	return config, nil
@@ -446,8 +470,7 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 func (config *Config) hasToBuild() (bool, error) {
 	list, e := config.Cli.ImageList(config.Ctx, image.ListOptions{Filters: filters.NewArgs(filters.KeyValuePair{Key: "reference", Value: config.imageName()})})
 	if e != nil {
-		log.Println(e)
-		return true, fmt.Errorf("does not find %s can not get image list", config.imageName())
+		return true, fmt.Errorf("does not find %s can not get image list %w", config.imageName(), e)
 	}
 	if len(list) > 0 {
 		return false, nil
