@@ -1,3 +1,4 @@
 **/*.pem
 config.json
 pat.txt
+local-runner-controller

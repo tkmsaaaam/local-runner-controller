@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -44,30 +45,35 @@ type Auth struct {
 }
 
 type Env struct {
-	Runner        *Runner  `json:"runner"`
-	BaseImage     string   `json:"base_image"`
-	Limit         int      `json:"limit"`
-	Labels        []string `json:"labels"`
-	ContainerHost string   `json:"container_host"`
-	ImageHost     string   `json:"image_host"`
+	Runner         *Runner  `json:"runner"`
+	BaseImage      string   `json:"base_image"`
+	Limit          int      `json:"limit"`
+	Labels         []string `json:"labels"`
+	ContainerHost  string   `json:"container_host"`
+	ImageHost      string   `json:"image_host"`
+	Architecture   string   `json:"architecture"`
+	Os             string   `json:"os"`
+	RunnersVersion string   `json:"runners_version"`
 }
 
 type Config struct {
-	Cli       *client.Client
-	Ctx       context.Context
-	Runner    *Runner
-	Limit     int
-	Labels    []string
-	BaseImage string
-	ImageHost string
+	Cli          *client.Client
+	Ctx          context.Context
+	Runner       *Runner
+	Limit        int
+	Labels       []string
+	BaseImage    string
+	ImageHost    string
+	Architecture string
+	Os           string
+	Version      string
 }
 
 func (config *Config) imageName() string {
-	version := "2.321.0"
 	if config.ImageHost != "" {
-		return config.ImageHost + "/local-runner:" + config.BaseImage + "-" + version
+		return config.ImageHost + "/local-runner:" + config.BaseImage + "-" + config.Version
 	}
-	return "local-runner:" + config.BaseImage + "-" + version
+	return "local-runner:" + config.BaseImage + "-" + config.Version
 }
 
 const patPath = "./pat.txt"
@@ -237,14 +243,36 @@ func makeConfig() (*Config, error) {
 		host = env.ImageHost
 	}
 
+	os := "linux"
+	if env.Os != "" {
+		os = strings.ToLower(env.Os)
+	}
+
+	architecture := "x64"
+	if env.Architecture != "" {
+		architecture = strings.ToLower(env.Architecture)
+	}
+
+	version := "2.322.0"
+	if env.RunnersVersion != "" {
+		res, err := http.Get("https://github.com/actions/runner/releases/tag/v" + env.RunnersVersion)
+		if err == nil && res.StatusCode == http.StatusOK {
+			version = env.RunnersVersion
+		}
+		defer res.Body.Close()
+	}
+
 	config := &Config{
-		Cli:       cli,
-		Ctx:       context.Background(),
-		Runner:    env.Runner,
-		Limit:     limit,
-		Labels:    env.Labels,
-		BaseImage: baseImage,
-		ImageHost: host,
+		Cli:          cli,
+		Ctx:          context.Background(),
+		Runner:       env.Runner,
+		Limit:        limit,
+		Labels:       env.Labels,
+		BaseImage:    baseImage,
+		ImageHost:    host,
+		Os:           os,
+		Architecture: architecture,
+		Version:      version,
 	}
 
 	return config, nil
@@ -386,10 +414,24 @@ func (config *Config) handleContainer() *error {
 
 func (config *Config) buildRunnerImage() error {
 	// イメージビルドオプションの設定
+	args := map[string]*string{}
+	if config.Os != "" {
+		args["os"] = &config.Os
+	}
+	if config.Architecture != "" {
+		args["arch"] = &config.Architecture
+	}
+	if config.Version != "" {
+		args["version"] = &config.Version
+	}
+	for k, v := range args {
+		log.Println(k, *v)
+	}
 	options := types.ImageBuildOptions{
 		Tags:       []string{config.imageName()},
 		Dockerfile: "Dockerfile" + config.BaseImage,
 		Remove:     true,
+		BuildArgs:  args,
 	}
 
 	buildContext, err := createBuildContext("./dockerfiles")
