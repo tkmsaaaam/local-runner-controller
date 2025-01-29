@@ -38,11 +38,12 @@ type Runner struct {
 type Auth struct {
 	IsApp       bool   `json:"is_app"`
 	AccessToken string `json:"access_token"`
-	App         struct {
-		Id             int    `json:"id"`
-		InstallationId int    `json:"installation_id"`
-		KeyPath        string `json:"key_path"`
-	}
+	App         App
+}
+type App struct {
+	Id             int    `json:"id"`
+	InstallationId int    `json:"installation_id"`
+	KeyPath        string `json:"key_path"`
 }
 
 type Env struct {
@@ -76,7 +77,16 @@ func (config *Config) imageName() string {
 const patPath = "./pat.txt"
 
 func main() {
-	config, err := makeConfig()
+	p := os.Getenv("LOCAL_RUNNER_CONTROLLER_CONFIG_PATH")
+	if p == "" {
+		p = "config.json"
+	}
+	bytes, err := os.ReadFile(p)
+	if err != nil {
+		log.Println("Config file (config.json) is not present.")
+		return
+	}
+	config, err := makeConfig(bytes)
 	if err != nil {
 		log.Println("Invalid enviroment variables: ", err)
 		return
@@ -188,18 +198,10 @@ func main() {
 	}
 }
 
-func makeConfig() (*Config, error) {
-	p := os.Getenv("LOCAL_RUNNER_CONTROLLER_CONFIG_PATH")
-	if p == "" {
-		p = "config.json"
-	}
-	bytes, err := os.ReadFile(p)
-	if err != nil {
-		return nil, fmt.Errorf("Config file (config.json) is not present.")
-	}
+func makeConfig(bytes []byte) (*Config, error) {
 	var env Env
-	if err = json.Unmarshal(bytes, &env); err != nil {
-		return nil, fmt.Errorf("Config file (config.json) is not invalid.")
+	if err := json.Unmarshal(bytes, &env); err != nil {
+		return nil, fmt.Errorf("Config file (config.json) is invalid.")
 	}
 
 	if gitHubError := env.Runner.validate(); gitHubError != nil {
@@ -265,7 +267,11 @@ func makeConfig() (*Config, error) {
 
 func (runner *Runner) validate() error {
 	if runner.Owner == "" {
-		return fmt.Errorf("onwer is empty")
+		return fmt.Errorf("owner is required")
+	}
+
+	if runner.Auth == nil {
+		return fmt.Errorf("auth is required")
 	}
 
 	if authError := runner.Auth.validate(); authError != nil {
@@ -286,17 +292,17 @@ func (runner *Runner) setDefaultValue() {
 func (auth *Auth) validate() error {
 	if !auth.IsApp {
 		if auth.AccessToken == "" {
-			return fmt.Errorf("access_token is empty")
+			return fmt.Errorf("access_token is required")
 		}
 	} else {
 		if auth.App.KeyPath == "" {
-			return fmt.Errorf("key_path is empty")
+			return fmt.Errorf("key_path is required")
 		}
 		if auth.App.Id == 0 {
-			return fmt.Errorf("app.id is empty")
+			return fmt.Errorf("app.id is required")
 		}
 		if auth.App.InstallationId == 0 {
-			return fmt.Errorf("app.installation_id is empty")
+			return fmt.Errorf("app.installation_id is required")
 		}
 	}
 	return nil
@@ -401,9 +407,9 @@ func (config *Config) buildRunnerImage() error {
 	// イメージビルドオプションの設定
 	args := map[string]*string{}
 	arch := runtime.GOARCH
-	os := runtime.GOOS
+	goos := runtime.GOOS
 	args["arch"] = &arch
-	args["os"] = &os
+	args["os"] = &goos
 	if config.Version != "" {
 		args["version"] = &config.Version
 	}
@@ -415,7 +421,7 @@ func (config *Config) buildRunnerImage() error {
 		Dockerfile: "Dockerfile" + config.BaseImage,
 		Remove:     true,
 		BuildArgs:  args,
-		Platform:   os + "/" + arch,
+		Platform:   goos + "/" + arch,
 	}
 
 	buildContext, err := createBuildContext("./dockerfiles")
