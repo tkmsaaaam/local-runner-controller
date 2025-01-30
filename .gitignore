@@ -1,4 +1,6 @@
 **/*.pem
 config.json
+cover.html
+cover.out
 pat.txt
 local-runner-controller

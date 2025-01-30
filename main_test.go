@@ -51,6 +51,21 @@ func TestMakeConfig(t *testing.T) {
 			param: []byte(`{`),
 			want:  want{config: nil, err: fmt.Errorf("Config file (config.json) is invalid.")},
 		},
+		{
+			name:  "runner is not present",
+			param: []byte(`{"limit": 1, "base_image": "Noble", "runner": {"owner": "tkmsaaaam"}}`),
+			want:  want{config: nil, err: fmt.Errorf("Runner is not valid in config.json auth is required")},
+		},
+		{
+			name:  "valid config",
+			param: []byte(`{"limit": 1, "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token" }}}`),
+			want:  want{config: &Config{Limit: 1, BaseImage: "Noble", Version: "2.322.0"}, err: nil},
+		},
+		{
+			name:  "custom config",
+			param: []byte(`{"image_host": "localhost:5000", "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token" }}}`),
+			want:  want{config: &Config{Limit: 2, BaseImage: "Noble", ImageHost: "localhost:5000", Version: "2.322.0"}, err: nil},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,11 +73,24 @@ func TestMakeConfig(t *testing.T) {
 
 			actualConfig, actualError := makeConfig(tt.param)
 
-			if actualConfig != tt.want.config {
-				t.Errorf("makeConfig() config = %v, want %v", actualConfig, tt.want.config)
+			if actualConfig != nil && tt.want.config != nil {
+				if actualConfig.Limit != tt.want.config.Limit {
+					t.Errorf("makeConfig() config.Limit = \n%v, want \n%v", actualConfig, tt.want.config)
+				}
+				if actualConfig.BaseImage != tt.want.config.BaseImage {
+					t.Errorf("makeConfig() config.BaseImage = \n%v, want \n%v", actualConfig, tt.want.config)
+				}
+				if actualConfig.ImageHost != tt.want.config.ImageHost {
+					t.Errorf("makeConfig() config.ImageHost = \n%v, want \n%v", actualConfig, tt.want.config)
+				}
+				if actualConfig.Version != tt.want.config.Version {
+					t.Errorf("makeConfig() config.Version = \n%v, want \n%v", actualConfig, tt.want.config)
+				}
 			}
-			if (actualError == nil && tt.want.err != nil) || (actualError != nil && tt.want.err == nil) || (actualError.Error() != tt.want.err.Error()) {
-				t.Errorf("makeConfig() error = %v, want %v", actualError, tt.want.err)
+			if actualError != tt.want.err {
+				if (actualError == nil && tt.want.err != nil) || (actualError != nil && tt.want.err == nil) || (actualError.Error() != tt.want.err.Error()) {
+					t.Errorf("makeConfig() error = \n%v, want \n%v", actualError, tt.want.err)
+				}
 			}
 		})
 	}
@@ -105,6 +133,52 @@ func TestRunnerValidate(t *testing.T) {
 				if (actual == nil && tt.want != nil) || (actual != nil && tt.want == nil) || (actual.Error() != tt.want.Error()) {
 					t.Errorf("runner.validate() = %v, want %v", actual, tt.want)
 				}
+			}
+		})
+	}
+}
+
+func TestSetDefaultValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		param *Runner
+		want  *Runner
+	}{
+		{
+			name:  "setted",
+			param: &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}},
+			want:  &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}, ApiDomain: "api.github.com", Domain: "github.com"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Helper()
+
+			tt.param.setDefaultValue()
+
+			if tt.param.ApiDomain != tt.want.ApiDomain {
+				t.Errorf("runner.ApiDomain = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Domain != tt.want.Domain {
+				t.Errorf("runner.Domain = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Owner != tt.want.Owner {
+				t.Errorf("runner.Owner = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Auth.IsApp != tt.want.Auth.IsApp {
+				t.Errorf("runner.Auth.IsApp = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Auth.AccessToken != tt.want.Auth.AccessToken {
+				t.Errorf("runner.Auth.AccessToken = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Auth.App.Id != tt.want.Auth.App.Id {
+				t.Errorf("runner.Auth.App.Id = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Auth.App.InstallationId != tt.want.Auth.App.InstallationId {
+				t.Errorf("runner.Auth.App.InstallationId = %v, want %v", tt.param, tt.want)
+			}
+			if tt.param.Auth.App.KeyPath != tt.want.Auth.App.KeyPath {
+				t.Errorf("runner.Auth.App.KeyPath = %v, want %v", tt.param, tt.want)
 			}
 		})
 	}
