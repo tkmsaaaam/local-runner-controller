@@ -58,12 +58,12 @@ func TestMakeConfig(t *testing.T) {
 		},
 		{
 			name:  "valid config",
-			param: []byte(`{"limit": 1, "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token" }}}`),
+			param: []byte(`{"limit": 1, "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token"}}}`),
 			want:  want{config: &Config{Limit: 1, BaseImage: "Noble", Version: "2.322.0"}, err: nil},
 		},
 		{
 			name:  "custom config",
-			param: []byte(`{"image_host": "localhost:5000", "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token" }}}`),
+			param: []byte(`{"image_host": "localhost:5000", "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token"}}}`),
 			want:  want{config: &Config{Limit: 2, BaseImage: "Noble", ImageHost: "localhost:5000", Version: "2.322.0"}, err: nil},
 		},
 	}
@@ -87,11 +87,7 @@ func TestMakeConfig(t *testing.T) {
 					t.Errorf("makeConfig() config.Version = \n%v, want \n%v", actualConfig, tt.want.config)
 				}
 			}
-			if actualError != tt.want.err {
-				if (actualError == nil && tt.want.err != nil) || (actualError != nil && tt.want.err == nil) || (actualError.Error() != tt.want.err.Error()) {
-					t.Errorf("makeConfig() error = \n%v, want \n%v", actualError, tt.want.err)
-				}
-			}
+			assert(t, "makeConfig() error", actualError, tt.want.err)
 		})
 	}
 }
@@ -129,11 +125,7 @@ func TestRunnerValidate(t *testing.T) {
 
 			actual := tt.param.validate()
 
-			if actual != tt.want {
-				if (actual == nil && tt.want != nil) || (actual != nil && tt.want == nil) || (actual.Error() != tt.want.Error()) {
-					t.Errorf("runner.validate() = %v, want %v", actual, tt.want)
-				}
-			}
+			assert(t, "runner.validate()", actual, tt.want)
 		})
 	}
 }
@@ -148,6 +140,11 @@ func TestSetDefaultValue(t *testing.T) {
 			name:  "setted",
 			param: &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}},
 			want:  &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}, ApiDomain: "api.github.com", Domain: "github.com"},
+		},
+		{
+			name:  "not overwritten",
+			param: &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}, ApiDomain: "api.example.com", Domain: "example.com"},
+			want:  &Runner{Owner: "owner", Auth: &Auth{IsApp: false, AccessToken: "access_token"}, ApiDomain: "api.example.com", Domain: "example.com"},
 		},
 	}
 	for _, tt := range tests {
@@ -226,12 +223,15 @@ func TestAuthValidate(t *testing.T) {
 			t.Helper()
 
 			actual := tt.param.validate()
-
-			if actual != tt.want {
-				if (actual == nil && tt.want != nil) || (actual != nil && tt.want == nil) || (actual.Error() != tt.want.Error()) {
-					t.Errorf("auth.validate() = %v, want %v", actual, tt.want)
-				}
-			}
+			assert(t, "auth.validate()", actual, tt.want)
 		})
+	}
+}
+
+func assert(t *testing.T, name string, actual, want error) {
+	if actual != want {
+		if (actual == nil && want != nil) || (actual != nil && want == nil) || (actual.Error() != want.Error()) {
+			t.Errorf("%s = %v, want %v", name, actual, want)
+		}
 	}
 }
