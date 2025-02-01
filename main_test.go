@@ -29,7 +29,7 @@ func TestImageName(t *testing.T) {
 			actual := tt.param.imageName()
 
 			if actual != tt.want {
-				t.Errorf("imageName() = %v, want %v", actual, tt.want)
+				t.Errorf("imageName() = \n%v, want \n%v", actual, tt.want)
 			}
 		})
 	}
@@ -154,28 +154,28 @@ func TestSetDefaultValue(t *testing.T) {
 			tt.param.setDefaultValue()
 
 			if tt.param.ApiDomain != tt.want.ApiDomain {
-				t.Errorf("runner.ApiDomain = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.ApiDomain = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Domain != tt.want.Domain {
-				t.Errorf("runner.Domain = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Domain = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Owner != tt.want.Owner {
-				t.Errorf("runner.Owner = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Owner = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Auth.IsApp != tt.want.Auth.IsApp {
-				t.Errorf("runner.Auth.IsApp = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Auth.IsApp = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Auth.AccessToken != tt.want.Auth.AccessToken {
-				t.Errorf("runner.Auth.AccessToken = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Auth.AccessToken = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Auth.App.Id != tt.want.Auth.App.Id {
-				t.Errorf("runner.Auth.App.Id = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Auth.App.Id = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Auth.App.InstallationId != tt.want.Auth.App.InstallationId {
-				t.Errorf("runner.Auth.App.InstallationId = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Auth.App.InstallationId = \n%v, want \n%v", tt.param, tt.want)
 			}
 			if tt.param.Auth.App.KeyPath != tt.want.Auth.App.KeyPath {
-				t.Errorf("runner.Auth.App.KeyPath = %v, want %v", tt.param, tt.want)
+				t.Errorf("runner.Auth.App.KeyPath = \n%v, want \n%v", tt.param, tt.want)
 			}
 		})
 	}
@@ -231,7 +231,7 @@ func TestAuthValidate(t *testing.T) {
 func assert(t *testing.T, name string, actual, want error) {
 	if actual != want {
 		if (actual == nil && want != nil) || (actual != nil && want == nil) || (actual.Error() != want.Error()) {
-			t.Errorf("%s = %v, want %v", name, actual, want)
+			t.Errorf("%s = \n%v, want \n%v", name, actual, want)
 		}
 	}
 }
