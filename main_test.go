@@ -73,6 +73,13 @@ func TestMakeConfig(t *testing.T) {
 
 			actualConfig, actualError := makeConfig(tt.param)
 
+			if actualConfig == nil && tt.want.config != nil {
+				t.Errorf("makeConfig() actual = \nnil, but want \n%v", tt.want.config)
+			}
+			if actualConfig != nil && tt.want.config == nil {
+				t.Errorf("makeConfig() actual = \n%v, but want \nnil", actualConfig)
+			}
+
 			if actualConfig != nil && tt.want.config != nil {
 				if actualConfig.Limit != tt.want.config.Limit {
 					t.Errorf("makeConfig() config.Limit = \n%v, want \n%v", actualConfig, tt.want.config)
