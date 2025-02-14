@@ -427,7 +427,7 @@ func (config *Config) buildRunnerImage() error {
 		Platform:   goos + "/" + arch,
 	}
 
-	buildContext, err := createBuildContext("./dockerfiles")
+	buildContext, err := config.createBuildContext("./dockerfiles")
 	if err != nil {
 		return fmt.Errorf("Error creating build context: %s", err)
 	}
@@ -447,7 +447,7 @@ func (config *Config) buildRunnerImage() error {
 	return nil
 }
 
-func createBuildContext(dir string) (io.ReadCloser, error) {
+func (config *Config) createBuildContext(dir string) (io.ReadCloser, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 
@@ -459,6 +459,10 @@ func createBuildContext(dir string) (io.ReadCloser, error) {
 
 		// ディレクトリの場合はスキップ
 		if fi.IsDir() {
+			return nil
+		}
+
+		if strings.HasPrefix(fi.Name(), "Dockerfile") && fi.Name() != "Dockerfile"+config.BaseImage {
 			return nil
 		}
 
