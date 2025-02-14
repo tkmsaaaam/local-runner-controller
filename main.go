@@ -408,6 +408,9 @@ func (config *Config) buildRunnerImage() error {
 	args := map[string]*string{}
 	arch := runtime.GOARCH
 	goos := runtime.GOOS
+	if goos == "darwin" {
+		goos = "linux"
+	}
 	args["arch"] = &arch
 	args["os"] = &goos
 	if config.Version != "" {
