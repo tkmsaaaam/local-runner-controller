@@ -49,7 +49,7 @@ func TestMakeConfig(t *testing.T) {
 		{
 			name:  "invalid json",
 			param: []byte(`{`),
-			want:  want{config: nil, err: fmt.Errorf("Config file (config.json) is invalid.")},
+			want:  want{config: nil, err: fmt.Errorf("config file (config.json) is invalid")},
 		},
 		{
 			name:  "runner is not present",

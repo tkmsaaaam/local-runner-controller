@@ -173,12 +173,13 @@ func main() {
 					// `ContainerExecInspect`で`exec`プロセスの状態を確認
 					execInspect, err := config.Cli.ContainerExecInspect(context.Background(), res.ID)
 					if err != nil {
-						log.Fatalf("Error inspecting exec instance: %s", err)
+						log.Println("Error inspecting exec instance:", err)
+						break
 					}
 
 					// 終了したかを確認
-					if execInspect.Running == false {
-						fmt.Printf("Exec process finished with exit code: %d\n", execInspect.ExitCode)
+					if !execInspect.Running {
+						log.Println("Exec process finished with exit code:", execInspect.ExitCode)
 						break
 					}
 
@@ -201,7 +202,7 @@ func main() {
 func makeConfig(bytes []byte) (*Config, error) {
 	var env Env
 	if err := json.Unmarshal(bytes, &env); err != nil {
-		return nil, fmt.Errorf("Config file (config.json) is invalid.")
+		return nil, fmt.Errorf("config file (config.json) is invalid")
 	}
 
 	if gitHubError := env.Runner.validate(); gitHubError != nil {
@@ -217,7 +218,7 @@ func makeConfig(bytes []byte) (*Config, error) {
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithHost(containerHost))
 	if err != nil {
-		return nil, fmt.Errorf("Error creating Docker client: %s", err)
+		return nil, fmt.Errorf("error creating Docker client: %s", err)
 	}
 
 	var limit = env.Limit
@@ -228,7 +229,7 @@ func makeConfig(bytes []byte) (*Config, error) {
 	var baseImage = "Jammy"
 	if env.BaseImage != "" {
 		if _, err := os.Stat("./dockerfiles/Dockerfile" + env.BaseImage); os.IsNotExist(err) {
-			return nil, fmt.Errorf("Can not find ./dockerfiles/Dockerfile%s", env.BaseImage)
+			return nil, fmt.Errorf("can not find ./dockerfiles/Dockerfile%s", env.BaseImage)
 		}
 		baseImage = env.BaseImage
 	}
@@ -237,7 +238,7 @@ func makeConfig(bytes []byte) (*Config, error) {
 	if env.ImageHost != "" {
 		_, err := url.Parse(env.ImageHost)
 		if err != nil {
-			return nil, fmt.Errorf("Invalid image host %s %s", env.ImageHost, err)
+			return nil, fmt.Errorf("invalid image host %s %s", env.ImageHost, err)
 		}
 		host = env.ImageHost
 	}
@@ -314,7 +315,7 @@ func (config *Config) handleContainer() *error {
 	containers, err := config.Cli.ContainerList(config.Ctx, container.ListOptions{Filters: filters.NewArgs(filters.KeyValuePair{Key: "ancestor", Value: config.imageName()})})
 	if err != nil {
 		log.Println("Can not get containers list")
-		res := fmt.Errorf("Can not get containers list %s", err)
+		res := fmt.Errorf("can not get containers list %s", err)
 		return &res
 	}
 	if len(containers) >= config.Limit {
@@ -343,7 +344,7 @@ func (config *Config) handleContainer() *error {
 		patFile, err := os.Create(patPath)
 		if err != nil {
 			log.Println("Can not create file", patPath)
-			res := fmt.Errorf("Can not create file %s %s", patPath, err)
+			res := fmt.Errorf("can not create file %s %s", patPath, err)
 			return &res
 		}
 
@@ -351,7 +352,7 @@ func (config *Config) handleContainer() *error {
 		abspath, err := filepath.Abs(patFile.Name())
 		if err != nil {
 			log.Println("Can not get file path", patPath)
-			res := fmt.Errorf("Can not get file path %s %s", patPath, err)
+			res := fmt.Errorf("can not get file path %s %s", patPath, err)
 			return &res
 		}
 		binds = []string{
@@ -371,7 +372,7 @@ func (config *Config) handleContainer() *error {
 		Binds:      binds,
 	}
 
-	for i := 0; i < j; i++ {
+	for range j {
 		seed := time.Now().UnixNano()
 		rand.New(rand.NewSource(seed))
 		val := rand.Intn(100000)
@@ -429,7 +430,7 @@ func (config *Config) buildRunnerImage() error {
 
 	buildContext, err := config.createBuildContext("./dockerfiles")
 	if err != nil {
-		return fmt.Errorf("Error creating build context: %s", err)
+		return fmt.Errorf("error creating build context: %s", err)
 	}
 
 	res, er := config.Cli.ImageBuild(config.Ctx, buildContext, options)
@@ -440,7 +441,7 @@ func (config *Config) buildRunnerImage() error {
 
 	// ビルドの出力を表示
 	if _, err = io.Copy(os.Stdout, res.Body); err != nil {
-		return fmt.Errorf("Error reading build output: %s", err)
+		return fmt.Errorf("error reading build output: %s", err)
 	}
 
 	log.Println("Docker image built successfully!")
