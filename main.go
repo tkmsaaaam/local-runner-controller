@@ -243,7 +243,7 @@ func makeConfig(bytes []byte) (*Config, error) {
 		host = env.ImageHost
 	}
 
-	version := "2.322.0"
+	version := "2.323.0"
 	if env.RunnersVersion != "" {
 		res, err := http.Get("https://github.com/actions/runner/releases/tag/v" + env.RunnersVersion)
 		if err == nil && res.StatusCode == http.StatusOK {

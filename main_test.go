@@ -13,13 +13,13 @@ func TestImageName(t *testing.T) {
 	}{
 		{
 			name:  "empty image host",
-			param: &Config{ImageHost: "", BaseImage: "ubuntu", Version: "2.322.0"},
-			want:  "local-runner:ubuntu-2.322.0",
+			param: &Config{ImageHost: "", BaseImage: "ubuntu", Version: "2.323.0"},
+			want:  "local-runner:ubuntu-2.323.0",
 		},
 		{
 			name:  "with image host",
-			param: &Config{ImageHost: "localhost:5000", BaseImage: "ubuntu", Version: "2.322.0"},
-			want:  "localhost:5000/local-runner:ubuntu-2.322.0",
+			param: &Config{ImageHost: "localhost:5000", BaseImage: "ubuntu", Version: "2.323.0"},
+			want:  "localhost:5000/local-runner:ubuntu-2.323.0",
 		},
 	}
 	for _, tt := range tests {
@@ -59,12 +59,12 @@ func TestMakeConfig(t *testing.T) {
 		{
 			name:  "valid config",
 			param: []byte(`{"limit": 1, "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token"}}}`),
-			want:  want{config: &Config{Limit: 1, BaseImage: "Noble", Version: "2.322.0"}, err: nil},
+			want:  want{config: &Config{Limit: 1, BaseImage: "Noble", Version: "2.323.0"}, err: nil},
 		},
 		{
 			name:  "custom config",
 			param: []byte(`{"image_host": "localhost:5000", "base_image": "Noble", "runner": {"owner": "tkmsaaaam", "auth": {"is_app": false, "access_token": "example_access_token"}}}`),
-			want:  want{config: &Config{Limit: 2, BaseImage: "Noble", ImageHost: "localhost:5000", Version: "2.322.0"}, err: nil},
+			want:  want{config: &Config{Limit: 2, BaseImage: "Noble", ImageHost: "localhost:5000", Version: "2.323.0"}, err: nil},
 		},
 	}
 	for _, tt := range tests {
