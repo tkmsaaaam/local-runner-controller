@@ -17,7 +17,9 @@ RUN apt-get update && \
   -y
 
 WORKDIR /actions-runner
-ARG os=linux arch=x64 version="2.323.0"
+ARG os=linux
+ARG arch=x64
+ARG version="2.323.0"
 RUN curl -o actions-runner-${os}-${arch}-${version}.tar.gz -L https://github.com/actions/runner/releases/download/v${version}/actions-runner-${os}-${arch}-${version}.tar.gz && \
   tar xzf ./actions-runner-${os}-${arch}-${version}.tar.gz && \
   ./bin/installdependencies.sh
